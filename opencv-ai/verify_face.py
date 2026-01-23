@@ -6,7 +6,7 @@ from backend_client import mark_face_attendance
 
 URL = "http://192.168.1.6:4747/video"
 THRESHOLD = 0.35
-SUBJECT_ID = "PASTE_SUBJECT_ID_HERE"
+SUBJECT_ID = "696f5dbd27437c0fdca1433b"
 
 data = list(faces.find())
 db_emb = np.array(data[0]["embedding"])
