@@ -3,6 +3,14 @@ const AttendanceRecord = require("../models/AttendanceRecord.model");
 const Subject = require("../models/Subject.model");
 const getDistanceInMeters = require("../utils/distance");
 
+// ================= CONFIG =================
+const ATTENDANCE_LIMIT_MINUTES =
+  Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 30;
+
+const FACE_CONFIDENCE_THRESHOLD = 0.65;
+// =========================================
+
+
 // ================= START DAY ATTENDANCE =================
 const startAttendanceSession = async (req, res) => {
   try {
@@ -23,7 +31,6 @@ const startAttendanceSession = async (req, res) => {
     const today = new Date().toISOString().split("T")[0];
     const classKey = `${subject._id}_${today}`;
 
-    // 🚫 Prevent parallel session
     const existing = await AttendanceSession.findOne({ classKey, isActive: true });
     if (existing) {
       return res.status(409).json({
@@ -42,9 +49,9 @@ const startAttendanceSession = async (req, res) => {
       location: { latitude, longitude }
     });
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
-      message: "Day attendance session started",
+      message: "Attendance session started (30 min window)",
       session
     });
   } catch (err) {
@@ -54,6 +61,7 @@ const startAttendanceSession = async (req, res) => {
 };
 
 
+// ================= CLOSE SESSION =================
 const closeAttendanceSession = async (req, res) => {
   try {
     const session = await AttendanceSession.findById(req.params.sessionId);
@@ -70,25 +78,20 @@ const closeAttendanceSession = async (req, res) => {
     session.endTime = new Date();
     await session.save();
 
-    res.json({
-      success: true,
-      message: "Attendance session closed"
-    });
+    res.json({ success: true, message: "Attendance session closed" });
   } catch (err) {
     res.status(500).json({ success: false, message: "Failed to close session" });
   }
 };
 
+
+// ================= GET ACTIVE SESSION (STUDENT) =================
 const getActiveSessionForStudent = async (req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
     const classKey = `${req.params.subjectId}_${today}`;
 
-    const session = await AttendanceSession.findOne({
-      classKey,
-      isActive: true
-    });
-
+    const session = await AttendanceSession.findOne({ classKey, isActive: true });
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -96,21 +99,31 @@ const getActiveSessionForStudent = async (req, res) => {
       });
     }
 
+    const elapsed =
+      (Date.now() - new Date(session.startTime)) / (1000 * 60);
+
+    if (elapsed > ATTENDANCE_LIMIT_MINUTES) {
+      return res.status(403).json({
+        success: false,
+        message: "Attendance window closed"
+      });
+    }
+
     res.json({
       success: true,
-      session
+      session,
+      remainingMinutes: Math.max(
+        0,
+        Math.floor(ATTENDANCE_LIMIT_MINUTES - elapsed)
+      )
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch session"
-    });
+    res.status(500).json({ success: false, message: "Failed to fetch session" });
   }
 };
 
 
-
-// ================= MARK ATTENDANCE =================
+// ================= MARK ATTENDANCE (GPS) =================
 const markAttendance = async (req, res) => {
   try {
     const { sessionId, latitude, longitude } = req.body;
@@ -123,10 +136,13 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    if (req.user.department.toString() !== session.department.toString()) {
+    const elapsed =
+      (Date.now() - new Date(session.startTime)) / (1000 * 60);
+
+    if (elapsed > ATTENDANCE_LIMIT_MINUTES) {
       return res.status(403).json({
         success: false,
-        message: "Student not part of this class"
+        message: "Attendance window closed"
       });
     }
 
@@ -149,7 +165,7 @@ const markAttendance = async (req, res) => {
       location: { latitude, longitude }
     });
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       message: "Attendance marked",
       attendance: record
@@ -167,20 +183,38 @@ const markAttendance = async (req, res) => {
   }
 };
 
+
 // ================= FACE ATTENDANCE (OPENCV) =================
 const markAttendanceViaFace = async (req, res) => {
   try {
-    const { userId, subjectId, confidence } = req.body;
+    // ✅ ACCEPT BOTH FORMATS
+    const {
+      user_id,
+      subject_id,
+      userId,
+      subjectId,
+      confidence
+    } = req.body;
 
-    if (!userId || !subjectId) {
+    const finalUserId = user_id || userId;
+    const finalSubjectId = subject_id || subjectId;
+
+    if (!finalUserId || !finalSubjectId) {
       return res.status(400).json({
         success: false,
-        message: "userId and subjectId required"
+        message: "user_id and subject_id required"
+      });
+    }
+
+    if (confidence < FACE_CONFIDENCE_THRESHOLD) {
+      return res.status(403).json({
+        success: false,
+        message: "Face confidence too low"
       });
     }
 
     const today = new Date().toISOString().split("T")[0];
-    const classKey = `${subjectId}_${today}`;
+    const classKey = `${finalSubjectId}_${today}`;
 
     const session = await AttendanceSession.findOne({
       classKey,
@@ -194,8 +228,18 @@ const markAttendanceViaFace = async (req, res) => {
       });
     }
 
+    const elapsed =
+      (Date.now() - new Date(session.startTime)) / (1000 * 60);
+
+    if (elapsed > ATTENDANCE_LIMIT_MINUTES) {
+      return res.status(403).json({
+        success: false,
+        message: "Attendance window closed"
+      });
+    }
+
     const already = await AttendanceRecord.findOne({
-      student: userId,
+      student: finalUserId,
       classKey
     });
 
@@ -208,22 +252,22 @@ const markAttendanceViaFace = async (req, res) => {
 
     await AttendanceRecord.create({
       session: session._id,
-      student: userId,
+      student: finalUserId,
       subject: session.subject,
       classKey,
       status: "present",
       faceVerified: true,
-      faceConfidence: confidence || null,
+      faceConfidence: confidence,
       distanceMeters: 0
     });
 
-    return res.json({
+    res.json({
       success: true,
       message: "Attendance marked via face"
     });
   } catch (err) {
     console.error("Face attendance error:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Face attendance failed"
     });
@@ -233,8 +277,8 @@ const markAttendanceViaFace = async (req, res) => {
 
 module.exports = {
   startAttendanceSession,
-  markAttendance,
   closeAttendanceSession,
   getActiveSessionForStudent,
-  markAttendanceViaFace   // 👈 ADD
+  markAttendance,
+  markAttendanceViaFace
 };
