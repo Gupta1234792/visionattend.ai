@@ -20,8 +20,14 @@ const attendanceSessionSchema = new mongoose.Schema(
       required: true
     },
 
+    batchKey: {
+      type: String,
+      required: true,
+      index: true
+    },
+
     date: {
-      type: String, // YYYY-MM-DD
+      type: String,
       required: true
     },
 

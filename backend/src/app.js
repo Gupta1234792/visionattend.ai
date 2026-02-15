@@ -16,6 +16,10 @@ const subjectRoutes = require("./routes/subject.routes");
 const attendanceRoutes = require("./routes/attendance.routes");
 const reportRoutes = require("./routes/report.routes");
 const chatRoutes = require("./routes/chat.routes");
+
+// ✅ ADDED (THIS WAS MISSING)
+const classroomRoutes = require("./routes/classroom.routes");
+
 // ================= APP INIT =================
 const app = express();
 
@@ -40,6 +44,10 @@ app.use("/api/subjects", subjectRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/chat", chatRoutes);
+
+// ✅ VIRTUAL CLASSROOM (BATCH BASED)
+app.use("/api/classroom", classroomRoutes);
+
 // ================= HEALTH CHECK =================
 app.get("/health", (req, res) => {
   res.status(200).json({
@@ -49,3 +57,4 @@ app.get("/health", (req, res) => {
 });
 
 module.exports = app;
+//mongodb+srv://webbysuraj_db_user:gQFIC5QgZHLDlDno@cluster0.lng8sm6.mongodb.net/?appName=Cluster0NODE_ENV=development

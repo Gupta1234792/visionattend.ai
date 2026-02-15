@@ -7,13 +7,13 @@ from backend_client import mark_face_attendance
 
 # ================= CONFIG =================
 URL = "http://192.168.1.6:4747/video"
-SUBJECT_ID = "69760a3aab7d2cc07bf2f565"
+SUBJECT_ID = "697a5c786f7ee67f47600435"
 
 MATCH_THRESHOLD = 0.65
 LIVENESS_THRESHOLD = 1.5
+LIVENESS_SIZE = (160, 160)
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-LIVENESS_SIZE = (160, 160)   # 🔒 FIXED SIZE (CRITICAL)
 
 # ================= INIT =================
 arc = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
@@ -24,7 +24,7 @@ cap = cv2.VideoCapture(URL)
 def cosine(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
-# 🔒 Load faces registered WITH subjectId
+# 🔒 LOAD ONLY SUBJECT FACES
 db_faces = list(faces.find({"subjectId": SUBJECT_ID}))
 print("Loaded enrolled faces:", len(db_faces))
 
@@ -39,10 +39,6 @@ while True:
     if not ret:
         continue
 
-    hud_color = (0, 0, 255)
-    hud_text = "NO MATCH"
-
-    # ---------- FACE DETECTION ----------
     detections = arc.get(frame)
 
     if len(detections) != 1:
@@ -59,9 +55,8 @@ while True:
     x1, y1, x2, y2 = map(int, face.bbox)
     cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), 2)
 
-    # ---------- LIVENESS (FIXED SIZE) ----------
+    # ---------- LIVENESS ----------
     face_crop = frame[y1:y2, x1:x2]
-
     if face_crop.size == 0:
         continue
 
@@ -69,39 +64,33 @@ while True:
     live_score = motion_score(face_crop)
 
     if live_score < LIVENESS_THRESHOLD:
-        cv2.putText(frame, "SPOOF DETECTED", (40, 220),
+        cv2.putText(frame, "SPOOF DETECTED", (40, 200),
                     FONT, 1.5, (0, 0, 255), 3)
         cv2.imshow("Verify", frame)
         if cv2.waitKey(1) == 27:
             break
         continue
 
-    # ---------- MATCHING ----------
+    # ---------- MATCH ----------
     best_score = 0.0
-    best_user = None
+    best_user_id = None
 
     for doc in db_faces:
         db_emb = np.array(doc["embedding"])
         score = cosine(emb, db_emb)
         if score > best_score:
             best_score = score
-            best_user = doc["userId"]
+            best_user_id = doc["userId"]
 
     print(f"Best cosine score: {best_score:.3f}")
 
-    match_text = f"FACE MATCHED: {best_score:.2f}"
-
-    # ---------- DECISION ----------
-    if best_score >= MATCH_THRESHOLD and best_user:
-        hud_color = (0, 255, 0)
-        hud_text = "MATCH CONFIRMED"
-
-        cv2.putText(frame, match_text, (40, 120),
+    if best_score >= MATCH_THRESHOLD and best_user_id:
+        cv2.putText(frame, "MATCH CONFIRMED", (40, 120),
                     FONT, 1.2, (0, 255, 0), 3)
 
         if not attendance_sent:
             res = mark_face_attendance(
-                user_id=best_user,
+                user_id=best_user_id,
                 subject_id=SUBJECT_ID,
                 confidence=float(best_score)
             )
@@ -119,13 +108,8 @@ while True:
                 cv2.putText(frame, "BACKEND REJECTED", (40, 200),
                             FONT, 1.4, (0, 0, 255), 3)
     else:
-        cv2.putText(frame, match_text, (40, 120),
+        cv2.putText(frame, f"NO MATCH {best_score:.2f}", (40, 120),
                     FONT, 1.2, (0, 0, 255), 3)
-
-    # ---------- HUD ----------
-    cv2.rectangle(frame, (0, 0), (frame.shape[1], 40), hud_color, -1)
-    cv2.putText(frame, hud_text, (20, 30),
-                FONT, 1, (0, 0, 0), 2)
 
     cv2.imshow("Verify", frame)
     if cv2.waitKey(1) == 27:

@@ -5,8 +5,8 @@ from utils.mongo import faces
 
 # ================= CONFIG =================
 URL = "http://192.168.1.6:4747/video"
-USER_ID = "69760b44ab7d2cc07bf2f576"      # student id
-SUBJECT_ID = "69760a3aab7d2cc07bf2f565"   # subject id
+USER_ID = "69760b44ab7d2cc07bf2f576"      # Mongo User _id (student)
+SUBJECT_ID = "697a5c786f7ee67f47600435"   # Mongo Subject _id
 HOLD_TIME = 2
 
 # ================= INIT =================
@@ -24,18 +24,18 @@ while True:
     if not ret:
         continue
 
-    det = arc.get(frame)
+    faces_detected = arc.get(frame)
 
-    if len(det) != 1:
+    if len(faces_detected) != 1:
         start = None
-        cv2.putText(frame, "SHOW FACE", (100, 50),
+        cv2.putText(frame, "SHOW ONE FACE", (80, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
     else:
         if start is None:
             start = time.time()
 
         if time.time() - start >= HOLD_TIME:
-            embedding = det[0].embedding
+            embedding = faces_detected[0].embedding
             break
 
         cv2.putText(frame, "HOLD...", (150, 220),
@@ -49,20 +49,22 @@ cap.release()
 cv2.destroyAllWindows()
 
 # ================= SAVE =================
-if embedding is not None:
-    faces.delete_many({
-        "userId": USER_ID,
-        "subjectId": SUBJECT_ID
-    })
+if embedding is None:
+    raise RuntimeError("❌ Face capture failed")
 
-    faces.insert_one({
-        "userId": USER_ID,
-        "subjectId": SUBJECT_ID,
-        "embedding": embedding.tolist(),
-        "model": "arcface_buffalo_l",
-        "dim": 512
-    })
+# 🔒 ensure ONE face per user per subject
+faces.delete_many({
+    "userId": USER_ID,
+    "subjectId": SUBJECT_ID
+})
 
-    print("✅ FACE REGISTERED WITH SUBJECT")
-else:
-    print("❌ FACE REGISTRATION FAILED")
+faces.insert_one({
+    "userId": USER_ID,
+    "subjectId": SUBJECT_ID,
+    "embedding": embedding.tolist(),
+    "model": "arcface_buffalo_l",
+    "dim": 512,
+    "createdAt": time.time()
+})
+
+print("✅ FACE REGISTERED FOR SUBJECT")

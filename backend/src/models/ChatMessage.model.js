@@ -2,10 +2,7 @@ const mongoose = require("mongoose");
 
 const chatMessageSchema = new mongoose.Schema(
   {
-    roomId: {
-      type: String,
-      required: true // lecture.meetingId
-    },
+    roomId: { type: String, required: true },
 
     sender: {
       type: mongoose.Schema.Types.ObjectId,
@@ -15,14 +12,11 @@ const chatMessageSchema = new mongoose.Schema(
 
     senderRole: {
       type: String,
-      enum: ["teacher", "student"],
+      enum: ["teacher", "coordinator"],
       required: true
     },
 
-    message: {
-      type: String,
-      required: true
-    }
+    message: { type: String, required: true }
   },
   { timestamps: true }
 );

@@ -8,16 +8,12 @@ const opencvAuth = require("../middlewares/opencvAuth.middleware");
 const {
   startAttendanceSession,
   markAttendance,
-  closeAttendanceSession,
   getActiveSessionForStudent,
   markAttendanceViaFace
 } = require("../controllers/attendance.controller");
 
-/* =========================================================
-   TEACHER ROUTES
-   ========================================================= */
+/* ================= TEACHER ================= */
 
-// ▶ Start day-wise attendance (ONE per subject per day)
 router.post(
   "/start",
   authMiddleware,
@@ -25,19 +21,8 @@ router.post(
   startAttendanceSession
 );
 
-// ⏹ Manually close attendance session
-router.post(
-  "/close/:sessionId",
-  authMiddleware,
-  roleMiddleware("teacher"),
-  closeAttendanceSession
-);
+/* ================= STUDENT ================= */
 
-/* =========================================================
-   STUDENT ROUTES
-   ========================================================= */
-
-// 🔎 Get active attendance session (for today)
 router.get(
   "/active/:subjectId",
   authMiddleware,
@@ -45,7 +30,6 @@ router.get(
   getActiveSessionForStudent
 );
 
-// ✅ Manual attendance (GPS / fallback)
 router.post(
   "/mark",
   authMiddleware,
@@ -53,13 +37,11 @@ router.post(
   markAttendance
 );
 
-/* =========================================================
-   OPENCV ROUTE (NO JWT ❌, ONLY API KEY ✅)
-   ========================================================= */
+/* ================= OPENCV ================= */
 
 router.post(
   "/face",
-  opencvAuth,          // 🔐 THIS IS IMPORTANT
+  opencvAuth,
   markAttendanceViaFace
 );
 
