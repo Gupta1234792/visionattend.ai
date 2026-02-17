@@ -9,7 +9,8 @@ const {
   startAttendanceSession,
   markAttendance,
   getActiveSessionForStudent,
-  markAttendanceViaFace
+  markAttendanceViaFace,
+  scanFaceAndMarkAttendance
 } = require("../controllers/attendance.controller");
 
 /* ================= TEACHER ================= */
@@ -35,6 +36,13 @@ router.post(
   authMiddleware,
   roleMiddleware("student"),
   markAttendance
+);
+
+router.post(
+  "/scan-face",
+  authMiddleware,
+  roleMiddleware("student"),
+  scanFaceAndMarkAttendance
 );
 
 /* ================= OPENCV ================= */

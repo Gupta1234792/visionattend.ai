@@ -5,7 +5,8 @@ const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
 const {
   createSubject,
-  getMySubjects
+  getMySubjects,
+  getAccessibleSubjects
 } = require("../controllers/subject.controller");
 
 // HOD creates subject
@@ -22,6 +23,14 @@ router.get(
   authMiddleware,
   roleMiddleware("teacher"),
   getMySubjects
+);
+
+// Role-based subjects list without exposing raw lookup UX on frontend
+router.get(
+  "/mine",
+  authMiddleware,
+  roleMiddleware("hod", "coordinator", "teacher", "student"),
+  getAccessibleSubjects
 );
 
 module.exports = router;

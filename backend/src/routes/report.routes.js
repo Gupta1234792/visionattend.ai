@@ -2,51 +2,64 @@ const express = require("express");
 const router = express.Router();
 
 const authMiddleware = require("../middlewares/auth.middleware");
+const roleMiddleware = require("../middlewares/role.middleware");
 
 const {
   teacherReport,
   studentPercentage,
+  studentDailyReport,
+  exportStudentDailyCSV,
   subjectReport,
   exportCSV,
   exportPDF
 } = require("../controllers/report.controller");
 
-// ================= 📊 REPORTS =================
-
-// Teacher-wise report (logged-in teacher)
 router.get(
   "/teacher",
   authMiddleware,
+  roleMiddleware("teacher"),
   teacherReport
 );
 
-// Student attendance percentage (logged-in student)
 router.get(
   "/student",
   authMiddleware,
+  roleMiddleware("student"),
   studentPercentage
 );
 
-// Subject-wise detailed report
+router.get(
+  "/student/daily",
+  authMiddleware,
+  roleMiddleware("student"),
+  studentDailyReport
+);
+
+router.get(
+  "/student/daily/csv",
+  authMiddleware,
+  roleMiddleware("student"),
+  exportStudentDailyCSV
+);
+
 router.get(
   "/subject/:subjectId",
   authMiddleware,
+  roleMiddleware("admin", "hod", "coordinator", "teacher"),
   subjectReport
 );
 
-// ================= 📄 EXPORTS =================
-
-// CSV export (subject-wise)
 router.get(
   "/subject/:subjectId/csv",
   authMiddleware,
+  roleMiddleware("admin", "hod", "coordinator", "teacher"),
   exportCSV
 );
 
-// PDF export (subject-wise)
 router.get(
   "/subject/:subjectId/pdf",
   authMiddleware,
+  roleMiddleware("admin", "hod", "coordinator", "teacher"),
   exportPDF
 );
 

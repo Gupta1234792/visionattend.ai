@@ -1,23 +1,32 @@
-/* cron/attendance.cron.js
- */
-
 const cron = require("node-cron");
 const AttendanceSession = require("../models/AttendanceSession.model");
+
+const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 30;
 
 cron.schedule("* * * * *", async () => {
   try {
     const now = new Date();
+    const fallbackCutoff = new Date(now.getTime() - ATTENDANCE_LIMIT_MINUTES * 60 * 1000);
 
     const result = await AttendanceSession.updateMany(
       {
-        endTime: { $lt: now },
-        isActive: true
+        isActive: true,
+        $or: [
+          { endTime: { $lte: now } },
+          { endTime: null, startTime: { $lte: fallbackCutoff } },
+          { endTime: { $exists: false }, startTime: { $lte: fallbackCutoff } }
+        ]
       },
-      { isActive: false }
+      {
+        $set: {
+          isActive: false,
+          endTime: now
+        }
+      }
     );
 
     if (result.modifiedCount > 0) {
-      console.log(`⏱️ Auto-closed ${result.modifiedCount} attendance sessions`);
+      console.log(`Auto-closed ${result.modifiedCount} attendance sessions`);
     }
   } catch (err) {
     console.error("Cron error:", err);

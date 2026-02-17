@@ -1,8 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const authMiddleware = require("../middlewares/auth.middleware");
+const roleMiddleware = require("../middlewares/role.middleware");
 const { getClassroomData } = require("../controllers/classroom.controller");
 
-router.get("/:batchKey", authMiddleware, getClassroomData);
+router.get(
+  "/:batchKey",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "coordinator", "teacher", "student"),
+  getClassroomData
+);
 
 module.exports = router;

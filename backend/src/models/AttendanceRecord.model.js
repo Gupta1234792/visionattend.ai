@@ -2,40 +2,68 @@ const mongoose = require("mongoose");
 
 const attendanceRecordSchema = new mongoose.Schema(
   {
+    type: {
+      type: String,
+      enum: ["OFFLINE", "ONLINE"],
+      default: "OFFLINE",
+      index: true
+    },
+
     session: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "AttendanceSession",
-      required: true
+      required: function requiredSession() {
+        return this.type === "OFFLINE";
+      }
+    },
+
+    onlineLecture: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "OnlineLecture",
+      required: function requiredOnlineLecture() {
+        return this.type === "ONLINE";
+      }
     },
 
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
+      index: true
     },
 
     subject: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Subject",
-      required: true
+      required: true,
+      index: true
     },
 
-    // 🔐 One attendance per student per subject per day
     classKey: {
       type: String,
-      required: true
-      // example: <subjectId>_2026-01-17
+      required: true,
+      index: true
     },
 
     status: {
       type: String,
-      enum: ["present", "remote"],
+      enum: ["present", "remote", "absent"],
       default: "present"
+    },
+    locationFlag: {
+      type: String,
+      enum: ["green", "yellow", "red"],
+      default: "green"
     },
 
     distanceMeters: {
       type: Number,
-      required: true
+      default: null
+    },
+
+    gpsDistance: {
+      type: Number,
+      default: null
     },
 
     location: {
@@ -43,7 +71,21 @@ const attendanceRecordSchema = new mongoose.Schema(
       longitude: Number
     },
 
-    // 🧠 OpenCV payload (future)
+    joinTime: {
+      type: Date,
+      default: null
+    },
+
+    leaveTime: {
+      type: Date,
+      default: null
+    },
+
+    duration: {
+      type: Number,
+      default: 0
+    },
+
     faceVerified: {
       type: Boolean,
       default: false
@@ -62,13 +104,9 @@ const attendanceRecordSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// 🚫 HARD RULE: ONE ATTENDANCE PER DAY
-attendanceRecordSchema.index(
-  { student: 1, classKey: 1 },
-  { unique: true }
-);
+attendanceRecordSchema.index({ student: 1, classKey: 1 }, { unique: true });
+attendanceRecordSchema.index({ type: 1, onlineLecture: 1 });
 
-// ✅ SAFE EXPORT
 module.exports =
   mongoose.models.AttendanceRecord ||
   mongoose.model("AttendanceRecord", attendanceRecordSchema);

@@ -2,9 +2,6 @@ const User = require("../models/User.model");
 const { hashPassword, comparePassword } = require("../utils/password");
 const { generateToken } = require("../utils/jwt");
 
-console.log("User model type:", typeof User);
-console.log("hashPassword type:", typeof hashPassword);
-
 // ================= REGISTER =================
 const register = async (req, res) => {
   try {
@@ -14,6 +11,13 @@ const register = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "All fields are required"
+      });
+    }
+
+    if (role === "student") {
+      return res.status(400).json({
+        success: false,
+        message: "Student registration is invite-only. Use class invite link or code."
       });
     }
 
@@ -42,11 +46,23 @@ const register = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        college: user.college || null,
+        department: user.department || null,
+        year: user.year || null,
+        division: user.division || null,
+        faceRegistered: Boolean(user.faceRegisteredAt)
       }
     });
   } catch (error) {
     console.error("Register error:", error);
+    if (error?.name === "ValidationError") {
+      const firstError = Object.values(error.errors || {})[0];
+      return res.status(400).json({
+        success: false,
+        message: firstError?.message || "Validation failed"
+      });
+    }
     return res.status(500).json({
       success: false,
       message: "Registration failed"
@@ -97,7 +113,12 @@ const login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        college: user.college || null,
+        department: user.department || null,
+        year: user.year || null,
+        division: user.division || null,
+        faceRegistered: Boolean(user.faceRegisteredAt)
       }
     });
   } catch (error) {

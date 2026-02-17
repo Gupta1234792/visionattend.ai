@@ -38,6 +38,10 @@ division: {
   default: null
 }
 ,
+faceRegisteredAt: {
+  type: Date,
+  default: null
+},
 /* for students  */
 
 

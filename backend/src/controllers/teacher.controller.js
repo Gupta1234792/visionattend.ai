@@ -30,6 +30,18 @@ const createTeacher = async (req, res) => {
       });
     }
 
+    const departmentTeacherCount = await User.countDocuments({
+      role: "teacher",
+      department: req.user.department,
+      isActive: true
+    });
+    if (departmentTeacherCount >= 5) {
+      return res.status(400).json({
+        success: false,
+        message: "Teacher limit reached (max 5 per department)"
+      });
+    }
+
     const hashedPassword = await hashPassword(password);
 
     const teacher = await User.create({
@@ -72,6 +84,43 @@ const createTeacher = async (req, res) => {
   }
 };
 
+const listTeachers = async (req, res) => {
+  try {
+    const query = {
+      role: "teacher",
+      isActive: true
+    };
+
+    if (req.user.role === "admin") {
+      if (req.query.departmentId) {
+        query.department = req.query.departmentId;
+      }
+    } else if (req.user.department) {
+      query.department = req.user.department;
+    }
+
+    if (req.user.role !== "admin" && req.user.college) {
+      query.college = req.user.college;
+    }
+
+    const teachers = await User.find(query)
+      .select("name email department")
+      .sort({ name: 1 });
+
+    return res.status(200).json({
+      success: true,
+      teachers
+    });
+  } catch (error) {
+    console.error("List teacher error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch teachers"
+    });
+  }
+};
+
 module.exports = {
-  createTeacher
+  createTeacher,
+  listTeachers
 };

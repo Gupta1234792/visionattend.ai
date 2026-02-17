@@ -1,35 +1,37 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
-  "description": "Backend for VisionAttend",
-  "main": "server.js",
-  "scripts": {
-    "dev": "nodemon server.js",
-    "start": "node server.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^4.19.2",
-    "json2csv": "^6.0.0-alpha.2",
-    "jsonwebtoken": "^9.0.3",
-    "mongodb": "^7.0.0",
-    "mongoose": "^9.1.4",
-    "morgan": "^1.10.1",
-    "node-cron": "^4.2.1",
-    "nodemailer": "^7.0.12",
-    "nodemon": "^3.1.11",
-    "pdfkit": "^0.17.2",
-    "socket.io": "^4.8.3"
-  },
-  "devDependencies": {
-    "@types/json2csv": "^5.0.7"
-  }
+    "name":  "backend",
+    "version":  "1.0.0",
+    "description":  "Backend for VisionAttend",
+    "main":  "server.js",
+    "scripts":  {
+                    "dev":  "nodemon server.js",
+                    "start":  "node server.js"
+                },
+    "keywords":  [
+
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "type":  "commonjs",
+    "dependencies":  {
+                         "bcryptjs":  "^3.0.3",
+                         "cors":  "^2.8.5",
+                         "dotenv":  "^17.2.3",
+                         "express":  "^4.19.2",
+                         "json2csv":  "^6.0.0-alpha.2",
+                         "jsonwebtoken":  "^9.0.3",
+                         "mongodb":  "^7.0.0",
+                         "mongoose":  "^9.1.4",
+                         "morgan":  "^1.10.1",
+                         "node-cron":  "^4.2.1",
+                         "nodemailer":  "^7.0.12",
+                         "nodemon":  "^3.1.11",
+                         "pdfkit":  "^0.17.2",
+                         "socket.io":  "^4.8.3",
+                         "bullmq":  "^5.58.0",
+                         "ioredis":  "^5.6.1"
+                     },
+    "devDependencies":  {
+                            "@types/json2csv":  "^5.0.7"
+                        }
 }
-
-

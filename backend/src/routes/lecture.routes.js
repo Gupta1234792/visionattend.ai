@@ -3,14 +3,63 @@ const router = express.Router();
 
 const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
-const { createLecture } = require("../controllers/lecture.controller");
+const {
+  scheduleLecture,
+  listMyLectures,
+  listBatchLectures,
+  startLecture,
+  endLecture,
+  joinLecture,
+  leaveLecture
+} = require("../controllers/lecture.controller");
 
-// Teacher creates lecture
 router.post(
   "/",
   authMiddleware,
-  roleMiddleware("teacher"),
-  createLecture
+  roleMiddleware("teacher", "coordinator"),
+  scheduleLecture
+);
+
+router.get(
+  "/my",
+  authMiddleware,
+  roleMiddleware("teacher", "coordinator"),
+  listMyLectures
+);
+
+router.get(
+  "/batch/:batchId",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "teacher", "coordinator", "student", "parent"),
+  listBatchLectures
+);
+
+router.patch(
+  "/:lectureId/start",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "teacher", "coordinator"),
+  startLecture
+);
+
+router.patch(
+  "/:lectureId/end",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "teacher", "coordinator"),
+  endLecture
+);
+
+router.post(
+  "/:lectureId/join",
+  authMiddleware,
+  roleMiddleware("student", "parent", "teacher", "coordinator"),
+  joinLecture
+);
+
+router.post(
+  "/:lectureId/leave",
+  authMiddleware,
+  roleMiddleware("student", "parent", "teacher", "coordinator"),
+  leaveLecture
 );
 
 module.exports = router;

@@ -3,7 +3,6 @@ const cors = require("cors");
 const morgan = require("morgan");
 require("dotenv").config();
 
-// ================= ROUTE IMPORTS =================
 const authRoutes = require("./routes/auth.routes");
 const collegeRoutes = require("./routes/college.routes");
 const departmentRoutes = require("./routes/department.routes");
@@ -16,39 +15,42 @@ const subjectRoutes = require("./routes/subject.routes");
 const attendanceRoutes = require("./routes/attendance.routes");
 const reportRoutes = require("./routes/report.routes");
 const chatRoutes = require("./routes/chat.routes");
-
-// ✅ ADDED (THIS WAS MISSING)
 const classroomRoutes = require("./routes/classroom.routes");
+const lectureRoutes = require("./routes/lecture.routes");
+const ptmRoutes = require("./routes/ptm.routes");
+const eventRoutes = require("./routes/event.routes");
+const notificationRoutes = require("./routes/notification.routes");
+const parentRoutes = require("./routes/parent.routes");
 
-// ================= APP INIT =================
 const app = express();
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-// ================= MIDDLEWARES =================
-app.use(cors());
+app.use(cors({
+  origin: FRONTEND_URL,
+  credentials: true
+}));
 app.use(express.json());
 app.use(morgan("dev"));
 
-// ================= API ROUTES =================
 app.use("/api/auth", authRoutes);
 app.use("/api/colleges", collegeRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/hods", hodRoutes);
 app.use("/api/coordinators", coordinatorRoutes);
-
 app.use("/api/teachers", teacherRoutes);
-
-app.use("/api/student-invite", studentInviteRoutes); // coordinator → invite
-app.use("/api/students", studentRoutes);             // student register / me
-
+app.use("/api/student-invite", studentInviteRoutes);
+app.use("/api/students", studentRoutes);
 app.use("/api/subjects", subjectRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/chat", chatRoutes);
-
-// ✅ VIRTUAL CLASSROOM (BATCH BASED)
 app.use("/api/classroom", classroomRoutes);
+app.use("/api/lectures", lectureRoutes);
+app.use("/api/ptm", ptmRoutes);
+app.use("/api/events", eventRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/parents", parentRoutes);
 
-// ================= HEALTH CHECK =================
 app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
@@ -57,4 +59,3 @@ app.get("/health", (req, res) => {
 });
 
 module.exports = app;
-//mongodb+srv://webbysuraj_db_user:gQFIC5QgZHLDlDno@cluster0.lng8sm6.mongodb.net/?appName=Cluster0NODE_ENV=development

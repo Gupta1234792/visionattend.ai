@@ -3,16 +3,20 @@ const User = require("../models/User.model");
 
 const authMiddleware = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    const headerToken =
+      typeof authHeader === "string"
+        ? (authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader)
+        : "";
+    const altToken = req.headers["x-access-token"];
+    const token = (headerToken || altToken || "").toString().trim();
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: "Authorization token missing"
       });
     }
-
-    const token = authHeader.split(" ")[1];
 
     const decoded = verifyToken(token);
 

@@ -99,7 +99,48 @@ const getMySubjects = async (req, res) => {
   }
 };
 
+const getAccessibleSubjects = async (req, res) => {
+  try {
+    const user = req.user;
+    const query = { isActive: true };
+
+    if (user.role === "teacher") {
+      query.teacher = user._id;
+    } else if (["hod", "coordinator", "student"].includes(user.role)) {
+      if (!user.department) {
+        return res.status(400).json({
+          success: false,
+          message: "User department not configured"
+        });
+      }
+      query.department = user.department;
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied"
+      });
+    }
+
+    const subjects = await Subject.find(query)
+      .populate("department", "name code")
+      .populate("teacher", "name email")
+      .sort({ name: 1 });
+
+    return res.status(200).json({
+      success: true,
+      subjects
+    });
+  } catch (error) {
+    console.error("Get accessible subjects error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch subjects"
+    });
+  }
+};
+
 module.exports = {
   createSubject,
-  getMySubjects
+  getMySubjects,
+  getAccessibleSubjects
 };

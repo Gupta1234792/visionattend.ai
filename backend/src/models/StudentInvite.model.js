@@ -7,6 +7,12 @@ const studentInviteSchema = new mongoose.Schema(
       required: true,
       unique: true
     },
+    inviteCode: {
+      type: String,
+      uppercase: true,
+      unique: true,
+      sparse: true
+    },
 
     college: {
       type: mongoose.Schema.Types.ObjectId,

@@ -5,11 +5,11 @@ const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
 const { createStudentInvite } = require("../controllers/studentInvite.controller");
 
-// only CLASS COORDINATOR can create invite
+// class coordinator or teacher can create invite
 router.post(
   "/",
   authMiddleware,
-  roleMiddleware("coordinator"),
+  roleMiddleware("coordinator", "teacher"),
   createStudentInvite
 );
 
