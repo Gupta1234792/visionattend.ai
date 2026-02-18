@@ -18,7 +18,7 @@ const {
 router.post(
   "/start",
   authMiddleware,
-  roleMiddleware("teacher"),
+  roleMiddleware("teacher", "coordinator"),
   startAttendanceSession
 );
 

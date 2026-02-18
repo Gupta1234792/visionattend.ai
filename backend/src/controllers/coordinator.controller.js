@@ -1,7 +1,7 @@
 const User = require("../models/User.model");
 const Department = require("../models/Department.model");
 const { hashPassword } = require("../utils/password");
-const sendEmail = require("../utils/sendEmail");
+const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 
 const createCoordinator = async (req, res) => {
   try {
@@ -82,24 +82,18 @@ const createCoordinator = async (req, res) => {
       createdBy: req.user._id
     });
 
-    // 📧 SEND EMAIL TO COORDINATOR
-    await sendEmail({
-      to: email,
-      subject: "VisionAttend - Class Coordinator Account Created",
-      html: `
-        <h3>Hello ${name},</h3>
-        <p>Your Class Coordinator account has been created.</p>
-        <p><b>Login URL:</b> http://localhost:3000/login</p>
-        <p><b>Email:</b> ${email}</p>
-        <p><b>Password:</b> ${password}</p>
-        <br/>
-        <p>Regards,<br/>VisionAttend Team</p>
-      `
+    const emailSent = await sendCredentialsEmail({
+      name,
+      email,
+      password,
+      role: "coordinator"
     });
 
     return res.status(201).json({
       success: true,
-      message: "Class Coordinator created and email sent successfully",
+      message: emailSent
+        ? "Class Coordinator created and credentials email sent successfully"
+        : "Class Coordinator created, but credentials email failed",
       coordinator: {
         id: coordinator._id,
         name: coordinator.name,
@@ -120,3 +114,4 @@ const createCoordinator = async (req, res) => {
 module.exports = {
   createCoordinator
 };
+

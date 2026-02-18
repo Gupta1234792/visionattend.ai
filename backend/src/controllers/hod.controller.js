@@ -1,7 +1,7 @@
 const User = require("../models/User.model");
 const Department = require("../models/Department.model");
 const { hashPassword } = require("../utils/password");
-const sendEmail = require("../utils/sendEmail");
+const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 
 const createHOD = async (req, res) => {
   try {
@@ -39,7 +39,6 @@ const createHOD = async (req, res) => {
 
     const hashedPassword = await hashPassword(password);
 
-    // ✅ PERMANENT FIX: HOD KNOWS DEPARTMENT
     const hod = await User.create({
       name,
       email,
@@ -49,29 +48,21 @@ const createHOD = async (req, res) => {
       department: departmentId
     });
 
-    // ✅ PERMANENT FIX: DEPARTMENT KNOWS HOD
     department.hod = hod._id;
     await department.save();
 
-    // 📧 EMAIL (use env-based frontend URL)
-    await sendEmail({
-      to: email,
-      subject: "VisionAttend - HOD Account Created",
-      html: `
-        <h3>Hello ${name},</h3>
-        <p>Your <b>HOD account</b> has been created on <b>VisionAttend</b>.</p>
-        <p><b>Login URL:</b> ${process.env.FRONTEND_URL}/login</p>
-        <p><b>Email:</b> ${email}</p>
-        <p><b>Password:</b> ${password}</p>
-        <p>Please keep this information secure.</p>
-        <br/>
-        <p>Regards,<br/>VisionAttend Team</p>
-      `
+    const emailSent = await sendCredentialsEmail({
+      name,
+      email,
+      password,
+      role: "hod"
     });
 
     return res.status(201).json({
       success: true,
-      message: "HOD created and email sent successfully",
+      message: emailSent
+        ? "HOD created and credentials email sent successfully"
+        : "HOD created, but credentials email failed",
       hod: {
         id: hod._id,
         name: hod.name,
@@ -88,3 +79,4 @@ const createHOD = async (req, res) => {
 };
 
 module.exports = { createHOD };
+

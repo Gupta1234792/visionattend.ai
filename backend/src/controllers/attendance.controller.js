@@ -66,10 +66,20 @@ const startAttendanceSession = async (req, res) => {
 
     const subject = tenantCheck.subject;
 
-    if (subject.teacher.toString() !== req.user._id.toString()) {
+    if (req.user.role === "teacher" && subject.teacher.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: "You are not assigned to this subject"
+      });
+    }
+
+    if (
+      req.user.role === "coordinator" &&
+      subject.department?._id?.toString() !== req.user.department?.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Subject is outside your department"
       });
     }
 
@@ -96,11 +106,11 @@ const startAttendanceSession = async (req, res) => {
       batchKey
     });
 
-    const existing = await AttendanceSession.findOne({ classKey, isActive: true });
+    const existing = await AttendanceSession.findOne({ classKey });
     if (existing) {
       return res.status(409).json({
         success: false,
-        message: "Attendance already started for this batch today"
+        message: "Attendance already created for this batch today"
       });
     }
 

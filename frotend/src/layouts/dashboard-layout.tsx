@@ -30,8 +30,9 @@ const menuByRole: Record<string, Array<{ href: string; label: string }>> = {
   ],
   coordinator: [
     { href: "/coordinator", label: "Coordinator Dashboard" },
+    { href: "/teacher", label: "Classroom Dashboard" },
     { href: "/teacher#invite", label: "Invite Students" },
-    { href: "/teacher#attendance", label: "Attendance Flow" },
+    { href: "/teacher#attendance", label: "Start Attendance" },
   ],
   parent: [
     { href: "/parent", label: "Parent Dashboard" },

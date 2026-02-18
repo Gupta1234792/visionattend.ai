@@ -1,8 +1,7 @@
 const User = require("../models/User.model");
 const { hashPassword } = require("../utils/password");
-const sendEmail = require("../utils/sendEmail");
+const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 
-// ================= CREATE TEACHER =================
 const createTeacher = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -14,7 +13,6 @@ const createTeacher = async (req, res) => {
       });
     }
 
-    // check HOD role safety (extra)
     if (req.user.role !== "hod") {
       return res.status(403).json({
         success: false,
@@ -35,6 +33,7 @@ const createTeacher = async (req, res) => {
       department: req.user.department,
       isActive: true
     });
+
     if (departmentTeacherCount >= 5) {
       return res.status(400).json({
         success: false,
@@ -53,22 +52,18 @@ const createTeacher = async (req, res) => {
       department: req.user.department
     });
 
-    // 📧 send email credentials
-    await sendEmail({
-      to: email,
-      subject: "VisionAttend Teacher Account Created",
-      html: `
-        <h2>Welcome to VisionAttend</h2>
-        <p>Your teacher account has been created.</p>
-        <p><b>Email:</b> ${email}</p>
-        <p><b>Password:</b> ${password}</p>
-        <p>Please login and start using the system.</p>
-      `
+    const emailSent = await sendCredentialsEmail({
+      name,
+      email,
+      password,
+      role: "teacher"
     });
 
     return res.status(201).json({
       success: true,
-      message: "Teacher created successfully",
+      message: emailSent
+        ? "Teacher created and credentials email sent successfully"
+        : "Teacher created, but credentials email failed",
       teacher: {
         id: teacher._id,
         name: teacher.name,
@@ -124,3 +119,4 @@ module.exports = {
   createTeacher,
   listTeachers
 };
+

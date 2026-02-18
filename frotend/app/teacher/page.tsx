@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
+import { ToastItem, ToastStack } from "@/src/components/toast-stack";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
 import { useAuth } from "@/src/context/auth-context";
 import { buildBatchKey, buildBatchRoomId, connectCollegeSocket } from "@/src/services/socket";
@@ -35,6 +36,37 @@ type Announcement = {
   sender?: { _id?: string; name?: string; role?: string };
   time?: string;
 };
+type ClassroomStudent = {
+  _id: string;
+  name: string;
+  email: string;
+  rollNo?: string;
+  parentEmail?: string;
+  year?: string;
+  division?: string;
+  faceRegisteredAt?: string | null;
+};
+type ClassroomSession = {
+  _id: string;
+  subject?: string | { _id?: string; name?: string; code?: string };
+  teacher?: string | { _id?: string; name?: string; email?: string; role?: string };
+  isActive?: boolean;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  classKey?: string;
+};
+type ClassroomAttendance = {
+  _id: string;
+  session?: string;
+  status?: "present" | "remote" | "absent";
+  locationFlag?: "green" | "yellow" | "red";
+  distanceMeters?: number | null;
+  gpsDistance?: number | null;
+  markedAt?: string;
+  student?: { name?: string; rollNo?: string };
+  subject?: { name?: string; code?: string };
+};
 
 const years: YearValue[] = ["FY", "SY", "TY", "FINAL"];
 const divisions = ["A", "B", "C"];
@@ -47,7 +79,11 @@ export default function TeacherPage() {
   const [scheduledLectures, setScheduledLectures] = useState<ScheduledLecture[]>([]);
   const [reportRows, setReportRows] = useState<SubjectAttendanceRow[]>([]);
   const [classroomTeachers, setClassroomTeachers] = useState<Array<{ _id: string; name: string; email: string }>>([]);
+  const [classroomStudents, setClassroomStudents] = useState<ClassroomStudent[]>([]);
+  const [classroomSessions, setClassroomSessions] = useState<ClassroomSession[]>([]);
+  const [classroomAttendance, setClassroomAttendance] = useState<ClassroomAttendance[]>([]);
   const [inviteResult, setInviteResult] = useState<{ inviteLink: string; inviteCode: string } | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [year, setYear] = useState<YearValue>((user?.year as YearValue) || "FY");
@@ -78,9 +114,52 @@ export default function TeacherPage() {
     const maybeMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
     return maybeMessage || fallback;
   };
+  const pushToast = (text: string, type: "success" | "error" | "info" = "info") => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setToasts((prev) => [...prev, { id, text, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((item) => item.id !== id));
+    }, 3200);
+  };
 
   const batchKey = user?.department ? buildBatchKey(user.department, year, division) : "";
   const liveRoomId = batchKey ? buildBatchRoomId(batchKey) : "";
+  const today = new Date().toISOString().split("T")[0];
+  const activeAttendanceSession = classroomSessions.find((session) => {
+    const subjectId =
+      typeof session.subject === "string"
+        ? session.subject
+        : session.subject?._id || "";
+    const subjectMatched = selectedSubjectId ? subjectId === selectedSubjectId : true;
+    return Boolean(session.isActive) && session.date === today && subjectMatched;
+  });
+  const selectedSubjectName = useMemo(() => {
+    const selected = subjects.find((item) => item._id === selectedSubjectId);
+    return selected?.name || "All Subjects";
+  }, [subjects, selectedSubjectId]);
+  const classroomTodayRows = useMemo(() => {
+    const todaySessionIds = new Set(
+      classroomSessions
+        .filter((session) => session.date === today && (!selectedSubjectId || (typeof session.subject === "string" ? session.subject : session.subject?._id) === selectedSubjectId))
+        .map((session) => String(session._id))
+    );
+    return classroomAttendance
+      .filter((row) => row.session && todaySessionIds.has(String(row.session)))
+      .sort((a, b) => new Date(b.markedAt || 0).getTime() - new Date(a.markedAt || 0).getTime());
+  }, [classroomSessions, classroomAttendance, selectedSubjectId, today]);
+  const snapshot = useMemo(() => {
+    const present = classroomTodayRows.filter((row) => row.status === "present").length;
+    const remote = classroomTodayRows.filter((row) => row.status === "remote").length;
+    const absent = classroomTodayRows.filter((row) => row.status === "absent").length;
+    const faceRegistered = classroomStudents.filter((student) => Boolean(student.faceRegisteredAt)).length;
+    return {
+      totalStudents: classroomStudents.length,
+      faceRegistered,
+      present,
+      remote,
+      absent,
+    };
+  }, [classroomTodayRows, classroomStudents]);
 
   const addRemoteStream = (peerSocketId: string, stream: MediaStream) => {
     setRemoteStreams((prev) => {
@@ -183,8 +262,14 @@ export default function TeacherPage() {
     try {
       const res = await api.get(`/classroom/${batchKey}`);
       setClassroomTeachers(res.data.teachers || []);
+      setClassroomStudents(res.data.students || []);
+      setClassroomSessions(res.data.sessions || []);
+      setClassroomAttendance(res.data.attendance || []);
     } catch {
       setClassroomTeachers([]);
+      setClassroomStudents([]);
+      setClassroomSessions([]);
+      setClassroomAttendance([]);
     }
   };
 
@@ -223,6 +308,17 @@ export default function TeacherPage() {
     }, 0);
     return () => clearTimeout(timer);
   }, [year, division, liveRoomId]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!batchKey) return;
+    const interval = setInterval(() => {
+      void loadClassroom();
+      void loadMyLectures();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [batchKey, selectedSubjectId]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -403,9 +499,15 @@ export default function TeacherPage() {
       });
 
       setMessage(res.data?.message || "Attendance started.");
+      pushToast(res.data?.message || "Attendance session started.", "success");
+      if (res.data?.session) {
+        setClassroomSessions((prev) => [res.data.session, ...prev]);
+      }
       closeAttendanceCamera();
     } catch (error) {
-      setMessage(parseApiError(error, "Failed to start attendance session."));
+      const msg = parseApiError(error, "Failed to start attendance session.");
+      setMessage(msg);
+      pushToast(msg, "error");
     }
   };
 
@@ -421,8 +523,11 @@ export default function TeacherPage() {
         inviteCode: res.data?.inviteCode || res.data?.invite?.inviteCode || "",
       });
       setMessage("Student invite generated. Share link or code.");
+      pushToast("Student invite generated successfully.", "success");
     } catch (error) {
-      setMessage(parseApiError(error, "Failed to generate invite."));
+      const msg = parseApiError(error, "Failed to generate invite.");
+      setMessage(msg);
+      pushToast(msg, "error");
     }
   };
 
@@ -467,9 +572,12 @@ export default function TeacherPage() {
 
       setLectureForm({ title: "", scheduledAtLocal: "", durationMinutes: 60, subjectId: lectureForm.subjectId });
       setMessage("Lecture scheduled and shared in classroom chat.");
+      pushToast("Lecture scheduled and shared.", "success");
       void loadMyLectures();
     } catch (error) {
-      setMessage(parseApiError(error, "Failed to schedule lecture."));
+      const msg = parseApiError(error, "Failed to schedule lecture.");
+      setMessage(msg);
+      pushToast(msg, "error");
     }
   };
 
@@ -482,8 +590,11 @@ export default function TeacherPage() {
       const res = await api.get(`/reports/subject/${selectedSubjectId}`);
       setReportRows(res.data.records || []);
       setMessage("Detailed subject report loaded.");
+      pushToast("Detailed report loaded.", "success");
     } catch (error) {
-      setMessage(parseApiError(error, "Failed to load report."));
+      const msg = parseApiError(error, "Failed to load report.");
+      setMessage(msg);
+      pushToast(msg, "error");
     }
   };
 
@@ -504,6 +615,7 @@ export default function TeacherPage() {
       setLiveClassActive(true);
       broadcastReady();
       setMessage("Live class started. Students can join in realtime.");
+      pushToast("Live class started.", "success");
     } catch (error) {
       const name = (error as { name?: string })?.name || "";
       if (name === "NotFoundError" || name === "DevicesNotFoundError") {
@@ -512,9 +624,11 @@ export default function TeacherPage() {
       }
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
         setMessage("Camera/Mic permission denied. Allow access in browser settings.");
+        pushToast("Camera/Mic permission denied.", "error");
         return;
       }
       setMessage("Unable to start live class media.");
+      pushToast("Unable to start live class media.", "error");
     }
   };
 
@@ -525,11 +639,34 @@ export default function TeacherPage() {
       message: announcementText.trim(),
     });
     setAnnouncementText("");
+    pushToast("Announcement sent.", "success");
+  };
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      pushToast(`${label} copied.`, "success");
+    } catch {
+      pushToast(`Failed to copy ${label.toLowerCase()}.`, "error");
+    }
+  };
+  const getLectureStatus = (lecture: ScheduledLecture) => {
+    const now = Date.now();
+    const start = new Date(lecture.scheduledAt).getTime();
+    const end = start + Number(lecture.durationMinutes || 0) * 60 * 1000;
+    if (now < start) return "Upcoming";
+    if (now >= start && now <= end) return "Live";
+    return "Ended";
+  };
+  const lectureStatusClass = (status: string) => {
+    if (status === "Live") return "bg-red-100 text-red-700";
+    if (status === "Upcoming") return "bg-amber-100 text-amber-700";
+    return "bg-slate-100 text-slate-600";
   };
 
   return (
-    <ProtectedRoute allow={["teacher"]}>
-      <DashboardLayout title="Teacher Dashboard">
+    <ProtectedRoute allow={["teacher", "coordinator"]}>
+      <DashboardLayout title={user?.role === "coordinator" ? "Coordinator Classroom Dashboard" : "Teacher Dashboard"}>
+        <ToastStack toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((item) => item.id !== id))} />
         <div className="grid gap-4 xl:grid-cols-2">
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">My Subjects</h2>
@@ -540,6 +677,30 @@ export default function TeacherPage() {
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h2 className="text-base font-semibold">Today Classroom Snapshot</h2>
+            <p className="mt-2 text-sm text-slate-600">{selectedSubjectName} | {year}-{division}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs text-slate-500">Students</p>
+                <p className="text-lg font-semibold text-slate-900">{snapshot.totalStudents}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs text-slate-500">Face Registered</p>
+                <p className="text-lg font-semibold text-slate-900">{snapshot.faceRegistered}</p>
+              </div>
+              <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                <p className="text-xs text-green-700">Present</p>
+                <p className="text-lg font-semibold text-green-800">{snapshot.present}</p>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs text-amber-700">Remote</p>
+                <p className="text-lg font-semibold text-amber-800">{snapshot.remote}</p>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-600">Absent: {snapshot.absent} | Teachers in batch: {classroomTeachers.length}</p>
           </section>
 
           <section id="invite" className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -560,6 +721,14 @@ export default function TeacherPage() {
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
                 <p className="font-medium text-slate-800">Invite Code: {inviteResult.inviteCode || "N/A"}</p>
                 <p className="mt-1 break-all text-slate-700">{inviteResult.inviteLink}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs" onClick={() => copyText(inviteResult.inviteCode, "Invite code")}>
+                    Copy Code
+                  </button>
+                  <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs" onClick={() => copyText(inviteResult.inviteLink, "Invite link")}>
+                    Copy Link
+                  </button>
+                </div>
               </div>
             ) : null}
           </section>
@@ -577,6 +746,48 @@ export default function TeacherPage() {
                 <li className="text-slate-500">No teachers found for this classroom.</li>
               ) : null}
             </ul>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">Enrolled Students ({year}-{division})</h2>
+            <p className="mt-2 text-sm text-slate-600">Student list is loaded dynamically from backend classroom data.</p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2">Name</th>
+                    <th className="py-2">Email</th>
+                    <th className="py-2">Roll No</th>
+                    <th className="py-2">Parent Email</th>
+                    <th className="py-2">Year</th>
+                    <th className="py-2">Division</th>
+                    <th className="py-2">Face Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classroomStudents.map((student) => (
+                    <tr key={student._id} className="border-b border-slate-100">
+                      <td className="py-2">{student.name || "-"}</td>
+                      <td className="py-2">{student.email || "-"}</td>
+                      <td className="py-2">{student.rollNo || "-"}</td>
+                      <td className="py-2">{student.parentEmail || "-"}</td>
+                      <td className="py-2">{student.year || "-"}</td>
+                      <td className="py-2">{student.division || "-"}</td>
+                      <td className="py-2">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${student.faceRegisteredAt ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                          {student.faceRegisteredAt ? "Registered" : "Pending"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {classroomStudents.length === 0 ? (
+                    <tr>
+                      <td className="py-3 text-slate-500" colSpan={7}>No enrolled students found for this batch.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <section id="lecture-schedule" className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -625,7 +836,9 @@ export default function TeacherPage() {
           <section id="live-class" className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">Realtime Audio/Video Class</h2>
-              <span className="text-xs text-slate-500">Socket + WebRTC</span>
+              <span className={`rounded-full px-2 py-1 text-xs font-semibold ${liveClassActive ? "animate-pulse bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
+                {liveClassActive ? "LIVE" : "OFFLINE"}
+              </span>
             </div>
             <p className="mt-2 text-sm text-slate-600">Batch room: {liveRoomId || "N/A"}</p>
 
@@ -693,16 +906,22 @@ export default function TeacherPage() {
                     <th className="py-2">Subject</th>
                     <th className="py-2">Time</th>
                     <th className="py-2">Duration</th>
+                    <th className="py-2">Status</th>
                     <th className="py-2">Link</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scheduledLectures.map((lecture) => (
+                  {scheduledLectures.map((lecture) => {
+                    const status = getLectureStatus(lecture);
+                    return (
                     <tr key={lecture._id} className="border-b border-slate-100">
                       <td className="py-2">{lecture.title}</td>
                       <td className="py-2">{lecture.subjectId?.name || "-"}</td>
                       <td className="py-2">{new Date(lecture.scheduledAt).toLocaleString()}</td>
                       <td className="py-2">{lecture.durationMinutes} min</td>
+                      <td className="py-2">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${lectureStatusClass(status)}`}>{status}</span>
+                      </td>
                       <td className="py-2">
                         {lecture.meetingLink ? (
                           <a className="text-[#135ed8] underline" href={lecture.meetingLink} target="_blank" rel="noreferrer">
@@ -713,10 +932,11 @@ export default function TeacherPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {scheduledLectures.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={5}>No scheduled lectures yet.</td>
+                      <td className="py-3 text-slate-500" colSpan={6}>No scheduled lectures yet.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -725,8 +945,21 @@ export default function TeacherPage() {
           </section>
 
           <section id="attendance" className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
-            <h2 className="text-base font-semibold">Start Live Attendance</h2>
-            <p className="mt-2 text-sm text-slate-600">Camera frame + geolocation is sent to backend. AI matching stays in backend/OpenCV.</p>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Start Offline Lecture Attendance (Once Per Day)</h2>
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${activeAttendanceSession ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
+                <span className={`h-2 w-2 rounded-full ${activeAttendanceSession ? "animate-pulse bg-red-600" : "bg-slate-400"}`} />
+                {activeAttendanceSession ? "LIVE" : "OFFLINE"}
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-slate-600">Teacher/coordinator starts one attendance session per subject-batch each day. Students scan face + geo to mark attendance.</p>
+            {activeAttendanceSession ? (
+              <p className="mt-2 text-xs text-red-700">
+                Active session started at {activeAttendanceSession.startTime ? new Date(activeAttendanceSession.startTime).toLocaleTimeString() : "-"} and closes at {activeAttendanceSession.endTime ? new Date(activeAttendanceSession.endTime).toLocaleTimeString() : "-"}.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500">No active attendance session for selected subject today.</p>
+            )}
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)}>
                 {subjects.map((subject) => (
@@ -751,6 +984,46 @@ export default function TeacherPage() {
               <video ref={attendanceVideoRef} autoPlay playsInline muted className="mt-3 w-full max-w-md rounded-lg border border-slate-200" />
             )}
             <canvas ref={attendanceCanvasRef} className="hidden" />
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">Live Attendance Stream (Today)</h2>
+            <p className="mt-2 text-sm text-slate-600">Realtime-like rows from backend refresh. Present/Remote/Absent with geo flags.</p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2">Student</th>
+                    <th className="py-2">Roll No</th>
+                    <th className="py-2">Subject</th>
+                    <th className="py-2">Status</th>
+                    <th className="py-2">Flag</th>
+                    <th className="py-2">Marked At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classroomTodayRows.map((row) => (
+                    <tr key={row._id} className="border-b border-slate-100">
+                      <td className="py-2">{row.student?.name || "-"}</td>
+                      <td className="py-2">{row.student?.rollNo || "-"}</td>
+                      <td className="py-2">{row.subject?.name || "-"}</td>
+                      <td className="py-2 capitalize">{row.status || "-"}</td>
+                      <td className="py-2">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${flagClass(row.locationFlag)}`}>
+                          {row.locationFlag || "red"}
+                        </span>
+                      </td>
+                      <td className="py-2">{row.markedAt ? new Date(row.markedAt).toLocaleTimeString() : "-"}</td>
+                    </tr>
+                  ))}
+                  {classroomTodayRows.length === 0 ? (
+                    <tr>
+                      <td className="py-3 text-slate-500" colSpan={6}>No attendance marks yet for today.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <section id="reports" className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">

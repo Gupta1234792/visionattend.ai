@@ -18,6 +18,9 @@ exports.getClassroomData = async (req, res) => {
 
     const user = req.user;
     const sessionFilter = { batchKey };
+    const batchParts = String(batchKey).split("_");
+    const batchYear = batchParts[batchParts.length - 2] || "";
+    const batchDivision = batchParts[batchParts.length - 1] || "";
 
     if (["student", "coordinator"].includes(user.role)) {
       const ownBatchKey = getBatchKey({
@@ -49,6 +52,8 @@ exports.getClassroomData = async (req, res) => {
     }
 
     const sessions = await AttendanceSession.find(sessionFilter)
+      .populate("subject", "name code")
+      .populate("teacher", "name email role")
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
@@ -58,6 +63,7 @@ exports.getClassroomData = async (req, res) => {
     const attendance = sessionIds.length
       ? await AttendanceRecord.find({ session: { $in: sessionIds } })
           .populate("student", "name rollNo")
+          .populate("subject", "name code")
           .lean()
       : [];
 
@@ -77,9 +83,29 @@ exports.getClassroomData = async (req, res) => {
       .select("name email")
       .lean();
 
+    const studentQuery = {
+      role: "student",
+      isActive: true,
+      year: batchYear,
+      division: batchDivision
+    };
+
+    if (user.college) {
+      studentQuery.college = user.college;
+    }
+    if (user.department) {
+      studentQuery.department = user.department;
+    }
+
+    const students = await User.find(studentQuery)
+      .select("name email rollNo parentEmail year division faceRegisteredAt createdAt")
+      .sort({ rollNo: 1, name: 1 })
+      .lean();
+
     return res.json({
       success: true,
       teachers,
+      students,
       sessions,
       attendance
     });
