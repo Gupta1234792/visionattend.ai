@@ -18,6 +18,18 @@ const collegeSchema = new mongoose.Schema(
       type: String,
       required: true
     },
+    description: {
+      type: String,
+      default: ""
+    },
+    website: {
+      type: String,
+      default: ""
+    },
+    logoUrl: {
+      type: String,
+      default: ""
+    },
 
     location: {
       latitude: {

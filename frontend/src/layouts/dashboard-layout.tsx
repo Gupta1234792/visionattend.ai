@@ -7,32 +7,34 @@ import { useAuth } from "@/src/context/auth-context";
 const menuByRole: Record<string, Array<{ href: string; label: string }>> = {
   admin: [
     { href: "/admin", label: "Admin Dashboard" },
-    { href: "/admin#colleges", label: "Create College" },
-    { href: "/admin#hod", label: "Assign HOD" },
+    { href: "/admin/colleges", label: "Colleges" },
+    { href: "/admin/hods", label: "Assign HOD" },
+    { href: "/admin/users", label: "Users" },
   ],
   hod: [
     { href: "/hod", label: "HOD Dashboard" },
-    { href: "/hod#department", label: "My Department" },
-    { href: "/hod#teacher", label: "Assign Teacher" },
-    { href: "/hod#coordinator", label: "Assign Coordinator" },
-    { href: "/hod#subject", label: "Create Subject" },
+    { href: "/hod/department", label: "My Department" },
+    { href: "/hod/teachers", label: "Assign Teacher" },
+    { href: "/hod/coordinators", label: "Assign Coordinator" },
+    { href: "/hod/subjects", label: "Create Subject" },
   ],
   teacher: [
     { href: "/teacher", label: "Teacher Dashboard" },
-    { href: "/teacher#invite", label: "Invite Students" },
-    { href: "/teacher#attendance", label: "Start Attendance" },
-    { href: "/teacher#reports", label: "Reports" },
+    { href: "/teacher/invite", label: "Invite Students" },
+    { href: "/teacher/attendance", label: "Start Attendance" },
+    { href: "/teacher/reports", label: "Reports" },
   ],
   student: [
     { href: "/student", label: "Student Dashboard" },
-    { href: "/student#scan", label: "Scan Face" },
-    { href: "/student#history", label: "Attendance History" },
+    { href: "/student/scan", label: "Scan Face" },
+    { href: "/student/history", label: "Attendance History" },
+    { href: "/student/classroom", label: "Virtual Classroom" },
   ],
   coordinator: [
     { href: "/coordinator", label: "Coordinator Dashboard" },
     { href: "/teacher", label: "Classroom Dashboard" },
-    { href: "/teacher#invite", label: "Invite Students" },
-    { href: "/teacher#attendance", label: "Start Attendance" },
+    { href: "/teacher/invite", label: "Invite Students" },
+    { href: "/teacher/attendance", label: "Start Attendance" },
   ],
   parent: [
     { href: "/parent", label: "Parent Dashboard" },
@@ -62,7 +64,7 @@ export function DashboardLayout({
           <p className="mt-1 text-xs text-slate-500">AI Smart Attendance ERP</p>
           <nav className="mt-6 space-y-2">
             {menu.map((item) => {
-              const active = pathname === item.href;
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
                 <Link
                   key={item.href}

@@ -214,7 +214,7 @@ const getActiveSessionForStudent = async (req, res) => {
       classKey,
       batchKey,
       isActive: true
-    });
+    }).populate("teacher", "name email");
 
     if (!session) {
       return res.status(404).json({

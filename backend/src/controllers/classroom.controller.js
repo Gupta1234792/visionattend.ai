@@ -83,6 +83,29 @@ exports.getClassroomData = async (req, res) => {
       .select("name email")
       .lean();
 
+    const teacherIds = teachers.map((teacher) => teacher._id);
+    const teacherSubjects = teacherIds.length
+      ? await Subject.find({
+          teacher: { $in: teacherIds },
+          department: user.department || sessionFilter.department
+        })
+          .select("name code teacher")
+          .lean()
+      : [];
+
+    const subjectsByTeacher = new Map();
+    teacherSubjects.forEach((subject) => {
+      const key = String(subject.teacher);
+      const existing = subjectsByTeacher.get(key) || [];
+      existing.push({ name: subject.name, code: subject.code });
+      subjectsByTeacher.set(key, existing);
+    });
+
+    const teachersWithSubjects = teachers.map((teacher) => ({
+      ...teacher,
+      subjects: subjectsByTeacher.get(String(teacher._id)) || []
+    }));
+
     const studentQuery = {
       role: "student",
       isActive: true,
@@ -104,7 +127,7 @@ exports.getClassroomData = async (req, res) => {
 
     return res.json({
       success: true,
-      teachers,
+      teachers: teachersWithSubjects,
       students,
       sessions,
       attendance

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -7,6 +8,16 @@ import { DashboardLayout } from "@/src/layouts/dashboard-layout";
 
 type College = { _id: string; name: string; code: string; address: string };
 type Department = { _id: string; name: string; code: string; college: string };
+type AdminUser = {
+  _id: string;
+  name: string;
+  email: string;
+  role: "hod" | "teacher" | "student";
+  rollNo?: string;
+  year?: string;
+  division?: string;
+  department?: { name?: string; code?: string };
+};
 const departmentPresets = [
   { name: "Computer Science and Engineering", code: "CSE" },
   { name: "Information Technology", code: "IT" },
@@ -20,6 +31,9 @@ export default function AdminPage() {
   const [message, setMessage] = useState("Admin workflow ready.");
   const [colleges, setColleges] = useState<College[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [hods, setHods] = useState<AdminUser[]>([]);
+  const [teachers, setTeachers] = useState<AdminUser[]>([]);
+  const [students, setStudents] = useState<AdminUser[]>([]);
 
   const [collegeForm, setCollegeForm] = useState({
     name: "",
@@ -38,17 +52,31 @@ export default function AdminPage() {
   });
 
   const loadData = async () => {
-    const [collegeRes, departmentRes] = await Promise.all([api.get("/colleges"), api.get("/departments")]);
+    const [collegeRes, departmentRes, userRes] = await Promise.all([
+      api.get("/colleges"),
+      api.get("/departments"),
+      api.get("/admin/users")
+    ]);
     setColleges(collegeRes.data.colleges || []);
     setDepartments(departmentRes.data.departments || []);
+    setHods(userRes.data.hods || []);
+    setTeachers(userRes.data.teachers || []);
+    setStudents(userRes.data.students || []);
   };
 
   useEffect(() => {
     const timer = setTimeout(() => {
       const run = async () => {
-        const [collegeRes, departmentRes] = await Promise.all([api.get("/colleges"), api.get("/departments")]);
+        const [collegeRes, departmentRes, userRes] = await Promise.all([
+          api.get("/colleges"),
+          api.get("/departments"),
+          api.get("/admin/users")
+        ]);
         setColleges(collegeRes.data.colleges || []);
         setDepartments(departmentRes.data.departments || []);
+        setHods(userRes.data.hods || []);
+        setTeachers(userRes.data.teachers || []);
+        setStudents(userRes.data.students || []);
       };
       void run();
     }, 0);
@@ -184,6 +212,7 @@ export default function AdminPage() {
                     <th className="py-2">College</th>
                     <th className="py-2">Code</th>
                     <th className="py-2">Location</th>
+                    <th className="py-2">View</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -192,10 +221,43 @@ export default function AdminPage() {
                       <td className="py-2">{college.name}</td>
                       <td className="py-2">{college.code}</td>
                       <td className="py-2">{college.address}</td>
+                      <td className="py-2">
+                        <Link className="rounded border border-[#135ed8] px-2 py-1 text-xs font-semibold text-[#135ed8]" href={`/admin/colleges/${college._id}`}>
+                          View
+                        </Link>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          <section className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+            <h2 className="text-base font-semibold">All Users By Role</h2>
+            <div className="mt-3 grid gap-4 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-900">HODs ({hods.length})</p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                  {hods.map((u) => <li key={u._id}>{u.name} - {u.department?.code || "-"}</li>)}
+                  {hods.length === 0 ? <li className="text-slate-500">No HOD found.</li> : null}
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-900">Teachers ({teachers.length})</p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                  {teachers.map((u) => <li key={u._id}>{u.name} - {u.department?.code || "-"}</li>)}
+                  {teachers.length === 0 ? <li className="text-slate-500">No teacher found.</li> : null}
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-900">Students ({students.length})</p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                  {students.slice(0, 20).map((u) => <li key={u._id}>{u.name} - {u.department?.code || "-"} {u.year || "-"}-{u.division || "-"}</li>)}
+                  {students.length > 20 ? <li className="text-slate-500">+ {students.length - 20} more</li> : null}
+                  {students.length === 0 ? <li className="text-slate-500">No student found.</li> : null}
+                </ul>
+              </div>
             </div>
           </section>
         </div>

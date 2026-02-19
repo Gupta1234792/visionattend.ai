@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -9,6 +9,7 @@ export default function StudentFaceRegisterPage() {
   const router = useRouter();
   const [message, setMessage] = useState("Register your face to continue.");
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [waitingForConfirm, setWaitingForConfirm] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -99,12 +100,45 @@ const getCameraErrorMessage = (error: unknown) => {
         return;
       }
 
+      setWaitingForConfirm(true);
       setMessage(res.data?.message || "Face submitted. Waiting for OpenCV verification.");
     } catch (error) {
       const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
       showAlert(apiMessage || "Face registration failed.");
     }
   };
+
+  useEffect(() => {
+    const syncFaceStatus = async () => {
+      try {
+        const res = await api.get("/students/me");
+        const registered = Boolean(res.data?.student?.faceRegisteredAt);
+        if (!registered) return;
+
+        const rawUser = localStorage.getItem("va_user");
+        if (rawUser) {
+          const parsed = JSON.parse(rawUser);
+          parsed.faceRegistered = true;
+          localStorage.setItem("va_user", JSON.stringify(parsed));
+        }
+
+        setWaitingForConfirm(false);
+        setMessage("Face registration verified. Redirecting...");
+        router.push("/student");
+      } catch {
+        // keep polling silently
+      }
+    };
+
+    void syncFaceStatus();
+    if (!waitingForConfirm) return;
+
+    const interval = setInterval(() => {
+      void syncFaceStatus();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [waitingForConfirm, router]);
 
   return (
     <ProtectedRoute allow={["student"]}>
@@ -116,7 +150,9 @@ const getCameraErrorMessage = (error: unknown) => {
           <div className="mt-3 flex flex-wrap gap-2">
             <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={openCamera}>Open Camera</button>
             <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={closeCamera}>Close Camera</button>
-            <button className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60" type="button" onClick={submitFace} disabled={!cameraOpen}>Register Face</button>
+            <button className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60" type="button" onClick={submitFace} disabled={!cameraOpen || waitingForConfirm}>
+              {waitingForConfirm ? "Waiting for OpenCV..." : "Register Face"}
+            </button>
           </div>
 
           {cameraOpen && <video ref={videoRef} autoPlay playsInline muted className="mt-3 w-full rounded-lg border border-slate-200" />}

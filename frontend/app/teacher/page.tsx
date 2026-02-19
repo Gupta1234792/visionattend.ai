@@ -78,7 +78,7 @@ export default function TeacherPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [scheduledLectures, setScheduledLectures] = useState<ScheduledLecture[]>([]);
   const [reportRows, setReportRows] = useState<SubjectAttendanceRow[]>([]);
-  const [classroomTeachers, setClassroomTeachers] = useState<Array<{ _id: string; name: string; email: string }>>([]);
+  const [classroomTeachers, setClassroomTeachers] = useState<Array<{ _id: string; name: string; email: string; subjects?: Array<{ name?: string; code?: string }> }>>([]);
   const [classroomStudents, setClassroomStudents] = useState<ClassroomStudent[]>([]);
   const [classroomSessions, setClassroomSessions] = useState<ClassroomSession[]>([]);
   const [classroomAttendance, setClassroomAttendance] = useState<ClassroomAttendance[]>([]);
@@ -95,10 +95,6 @@ export default function TeacherPage() {
     subjectId: "",
   });
 
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const attendanceVideoRef = useRef<HTMLVideoElement | null>(null);
-  const attendanceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const attendanceStreamRef = useRef<MediaStream | null>(null);
 
   const [liveClassActive, setLiveClassActive] = useState(false);
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
@@ -403,63 +399,6 @@ export default function TeacherPage() {
   }, [token, user?.college, liveRoomId, liveClassActive]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  const openAttendanceCamera = async () => {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setMessage("Camera not detected. Please connect a webcam.");
-        return;
-      }
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const hasVideoInput = devices.some((d) => d.kind === "videoinput");
-      if (!hasVideoInput) {
-        setMessage("Camera not detected. Please connect a webcam.");
-        return;
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-      attendanceStreamRef.current = stream;
-      if (attendanceVideoRef.current) {
-        attendanceVideoRef.current.srcObject = stream;
-      }
-      setCameraOpen(true);
-    } catch (error) {
-      const name = (error as { name?: string })?.name || "";
-      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        setMessage("Camera not detected. Please connect a webcam.");
-        return;
-      }
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        setMessage("Camera permission denied. Allow camera access in browser settings.");
-        return;
-      }
-      if (name === "NotReadableError" || name === "TrackStartError") {
-        setMessage("Camera is busy in another app. Close that app and retry.");
-        return;
-      }
-      setMessage("Unable to access camera.");
-    }
-  };
-
-  const closeAttendanceCamera = () => {
-    if (attendanceStreamRef.current) {
-      attendanceStreamRef.current.getTracks().forEach((track) => track.stop());
-      attendanceStreamRef.current = null;
-    }
-    setCameraOpen(false);
-  };
-
-  const captureFrame = () => {
-    const video = attendanceVideoRef.current;
-    const canvas = attendanceCanvasRef.current;
-    if (!video || !canvas) return "";
-
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
-  };
 
   const getLocation = () =>
     new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
@@ -482,11 +421,6 @@ export default function TeacherPage() {
     }
 
     try {
-      if (!cameraOpen) {
-        setMessage("Open camera first, then start attendance.");
-        return;
-      }
-      const frame = captureFrame();
       const location = await getLocation();
 
       const res = await api.post("/attendance/start", {
@@ -494,8 +428,7 @@ export default function TeacherPage() {
         year,
         division,
         latitude: location.latitude,
-        longitude: location.longitude,
-        image: frame,
+        longitude: location.longitude
       });
 
       setMessage(res.data?.message || "Attendance started.");
@@ -503,7 +436,6 @@ export default function TeacherPage() {
       if (res.data?.session) {
         setClassroomSessions((prev) => [res.data.session, ...prev]);
       }
-      closeAttendanceCamera();
     } catch (error) {
       const msg = parseApiError(error, "Failed to start attendance session.");
       setMessage(msg);
@@ -739,7 +671,12 @@ export default function TeacherPage() {
             <ul className="mt-3 space-y-2 text-sm">
               {classroomTeachers.slice(0, 5).map((teacher) => (
                 <li key={teacher._id} className="rounded-lg border border-slate-200 px-3 py-2">
-                  {teacher.name} ({teacher.email})
+                  <p>{teacher.name} ({teacher.email})</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {(teacher.subjects || []).length
+                      ? teacher.subjects?.map((subject) => `${subject.name || "-"}${subject.code ? ` (${subject.code})` : ""}`).join(", ")
+                      : "No mapped subjects"}
+                  </p>
                 </li>
               ))}
               {classroomTeachers.length === 0 ? (
@@ -975,15 +912,8 @@ export default function TeacherPage() {
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm" type="button" onClick={openAttendanceCamera}>Open Camera</button>
-              <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm" type="button" onClick={closeAttendanceCamera}>Close Camera</button>
               <button className="rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="button" onClick={startAttendance}>Start Attendance</button>
             </div>
-
-            {cameraOpen && (
-              <video ref={attendanceVideoRef} autoPlay playsInline muted className="mt-3 w-full max-w-md rounded-lg border border-slate-200" />
-            )}
-            <canvas ref={attendanceCanvasRef} className="hidden" />
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">

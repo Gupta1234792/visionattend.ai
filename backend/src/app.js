@@ -22,6 +22,7 @@ const eventRoutes = require("./routes/event.routes");
 const notificationRoutes = require("./routes/notification.routes");
 const parentRoutes = require("./routes/parent.routes");
 const assistantRoutes = require("./routes/assistant.routes");
+const adminRoutes = require("./routes/admin.routes");
 
 const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
@@ -52,6 +53,7 @@ app.use("/api/events", eventRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/parents", parentRoutes);
 app.use("/api/assistant", assistantRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({

@@ -37,6 +37,17 @@ type Announcement = {
   sender?: { _id?: string; name?: string; role?: string };
   time?: string;
 };
+type ClassroomTeacher = {
+  _id: string;
+  name: string;
+  email: string;
+  subjects?: Array<{ name?: string; code?: string }>;
+};
+type ActiveSessionMeta = {
+  teacherName?: string;
+  teacherEmail?: string;
+  remainingMinutes?: number;
+};
 type BotMessage = {
   id: string;
   role: "user" | "assistant";
@@ -49,9 +60,11 @@ export default function StudentPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [activeSessionId, setActiveSessionId] = useState("");
+  const [activeSessionMeta, setActiveSessionMeta] = useState<ActiveSessionMeta | null>(null);
   const [history, setHistory] = useState<AttendanceHistoryRow[]>([]);
   const [upcomingLectures, setUpcomingLectures] = useState<BatchLecture[]>([]);
   const [dailyAttendance, setDailyAttendance] = useState<DailyAttendanceRow[]>([]);
+  const [classroomTeachers, setClassroomTeachers] = useState<ClassroomTeacher[]>([]);
   const [botMessages, setBotMessages] = useState<BotMessage[]>([
     {
       id: "welcome",
@@ -195,6 +208,16 @@ export default function StudentPage() {
     }
   };
 
+  const loadClassroomTeachers = async () => {
+    if (!batchKey) return;
+    try {
+      const res = await api.get(`/classroom/${batchKey}`);
+      setClassroomTeachers(res.data?.teachers || []);
+    } catch {
+      setClassroomTeachers([]);
+    }
+  };
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -203,6 +226,7 @@ export default function StudentPage() {
       void loadAnnouncements();
       void loadBatchLectures();
       void loadDailyAttendance();
+      void loadClassroomTeachers();
     }, 0);
     return () => clearTimeout(timer);
   }, [liveRoomId]);
@@ -213,6 +237,7 @@ export default function StudentPage() {
     if (!batchKey) return;
     const interval = setInterval(() => {
       void loadBatchLectures();
+      void loadClassroomTeachers();
     }, 30000);
     return () => clearInterval(interval);
   }, [batchKey]);
@@ -371,9 +396,19 @@ export default function StudentPage() {
     try {
       const res = await api.get(`/attendance/active/${selectedSubjectId}`);
       setActiveSessionId(res.data?.session?._id || "");
+      setActiveSessionMeta(
+        res.data?.session?._id
+          ? {
+              teacherName: res.data?.session?.teacher?.name,
+              teacherEmail: res.data?.session?.teacher?.email,
+              remainingMinutes: Number(res.data?.remainingMinutes || 0)
+            }
+          : null
+      );
       setMessage(res.data?.session?._id ? "Active session found." : "No active session.");
     } catch {
       setActiveSessionId("");
+      setActiveSessionMeta(null);
       setMessage("No active attendance session.");
     }
   };
@@ -540,6 +575,13 @@ export default function StudentPage() {
               <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={findActiveSession}>Find Session</button>
             </div>
 
+            {activeSessionMeta ? (
+              <div className="mt-3 rounded-lg border border-[#135ed8]/30 bg-[#135ed8]/5 p-3 text-sm text-slate-700">
+                <p><span className="font-semibold">Started by:</span> {activeSessionMeta.teacherName || "-"} ({activeSessionMeta.teacherEmail || "-"})</p>
+                <p className="mt-1"><span className="font-semibold">Remaining:</span> {activeSessionMeta.remainingMinutes ?? 0} min</p>
+              </div>
+            ) : null}
+
             <div className="mt-3 flex flex-wrap gap-2">
               <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={openAttendanceCamera}>Open Camera</button>
               <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={closeAttendanceCamera}>Close Camera</button>
@@ -676,6 +718,40 @@ export default function StudentPage() {
                       <td className="py-2">{typeof row.percentage === "number" ? `${row.percentage}%` : "-"}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">Virtual Classroom Teachers</h2>
+            <p className="mt-2 text-sm text-slate-600">Your classroom faculty list with mapped subjects.</p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2">Teacher</th>
+                    <th className="py-2">Email</th>
+                    <th className="py-2">Subjects</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classroomTeachers.slice(0, 5).map((teacher) => (
+                    <tr key={teacher._id} className="border-b border-slate-100">
+                      <td className="py-2">{teacher.name || "-"}</td>
+                      <td className="py-2">{teacher.email || "-"}</td>
+                      <td className="py-2">
+                        {(teacher.subjects || []).length
+                          ? teacher.subjects?.map((s) => `${s.name || "-"}${s.code ? ` (${s.code})` : ""}`).join(", ")
+                          : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                  {classroomTeachers.length === 0 ? (
+                    <tr>
+                      <td className="py-3 text-slate-500" colSpan={3}>No classroom teachers available.</td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
