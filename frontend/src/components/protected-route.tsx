@@ -14,9 +14,10 @@ export function ProtectedRoute({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, token } = useAuth();
+  const { user, token, loading } = useAuth();
 
   useEffect(() => {
+    if (loading) return;
     if (!token || !user) {
       router.replace("/auth");
       return;
@@ -35,7 +36,7 @@ export function ProtectedRoute({
     if (studentFacePending) {
       router.replace("/student/face-register");
     }
-  }, [allow, token, user, router, pathname]);
+  }, [allow, token, user, loading, router, pathname]);
 
   const studentFacePending =
     user?.role === "student" &&
@@ -43,7 +44,7 @@ export function ProtectedRoute({
     pathname !== "/student/face-register" &&
     pathname !== "/student/register";
 
-  if (!token || !user || !allow.includes(user.role) || studentFacePending) {
+  if (loading || !token || !user || !allow.includes(user.role) || studentFacePending) {
     return <div className="p-6 text-sm text-slate-600">Loading...</div>;
   }
 

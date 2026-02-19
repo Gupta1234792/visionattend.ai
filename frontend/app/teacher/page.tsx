@@ -306,16 +306,7 @@ export default function TeacherPage() {
   }, [year, division, liveRoomId]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  /* eslint-disable react-hooks/exhaustive-deps */
-  useEffect(() => {
-    if (!batchKey) return;
-    const interval = setInterval(() => {
-      void loadClassroom();
-      void loadMyLectures();
-    }, 20000);
-    return () => clearInterval(interval);
-  }, [batchKey, selectedSubjectId]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  // auto-polling removed to avoid noisy refresh loops; data is refreshed on load/actions
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {

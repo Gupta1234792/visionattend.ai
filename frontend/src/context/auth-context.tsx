@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { AuthUser, login as loginRequest, register as registerRequest, UserRole } from "@/src/services/auth";
 
 type AuthContextType = {
@@ -36,9 +36,15 @@ const parseApiError = (error: unknown, fallback: string) => {
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => readUser());
-  const [token, setToken] = useState(() => readToken());
-  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setUser(readUser());
+    setToken(readToken());
+    setLoading(false);
+  }, []);
 
   const login = async (payload: { email: string; password: string; role: UserRole }) => {
     setLoading(true);
