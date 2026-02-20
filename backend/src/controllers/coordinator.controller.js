@@ -6,8 +6,9 @@ const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const createCoordinator = async (req, res) => {
   try {
     const { name, email, password, departmentId, year, division } = req.body;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
 
-    if (!name || !email || !password || !departmentId || !year || !division) {
+    if (!name || !normalizedEmail || !password || !departmentId || !year || !division) {
       return res.status(400).json({
         success: false,
         message: "All fields are required"
@@ -46,7 +47,7 @@ const createCoordinator = async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(409).json({
         success: false,
@@ -72,7 +73,7 @@ const createCoordinator = async (req, res) => {
 
     const coordinator = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       password: hashedPassword,
       role: "coordinator",
       college: req.user.college,
@@ -84,7 +85,7 @@ const createCoordinator = async (req, res) => {
 
     const emailSent = await sendCredentialsEmail({
       name,
-      email,
+      email: normalizedEmail,
       password,
       role: "coordinator"
     });
@@ -114,4 +115,3 @@ const createCoordinator = async (req, res) => {
 module.exports = {
   createCoordinator
 };
-
