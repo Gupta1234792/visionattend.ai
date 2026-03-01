@@ -2,6 +2,10 @@ const User = require("../models/User.model");
 const StudentInvite = require("../models/StudentInvite.model");
 const { hashPassword } = require("../utils/password");
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.7;
+const OPENCV_REGISTER_URL = process.env.OPENCV_REGISTER_URL ||
+  (process.env.OPENCV_VERIFY_URL
+    ? process.env.OPENCV_VERIFY_URL.replace(/\/verify\/?$/, "/register")
+    : "");
 
 // ================= VALIDATE STUDENT INVITE =================
 const validateInviteToken = async (req, res) => {
@@ -234,10 +238,56 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    return res.status(202).json({
+    if (student.faceRegisteredAt) {
+      return res.status(200).json({
+        success: true,
+        message: "Face already registered",
+        faceRegistered: true
+      });
+    }
+
+    if (!OPENCV_REGISTER_URL) {
+      return res.status(503).json({
+        success: false,
+        message: "OpenCV register service not configured"
+      });
+    }
+
+    const registerRes = await fetch(OPENCV_REGISTER_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        userId: String(student._id),
+        image
+      })
+    });
+
+    const registerData = await registerRes.json().catch(() => ({}));
+    const confidenceValue = Number(registerData?.confidence);
+
+    if (
+      !registerRes.ok ||
+      !registerData?.success ||
+      !Number.isFinite(confidenceValue) ||
+      confidenceValue < FACE_REGISTRATION_CONFIDENCE
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: registerData?.message || "Face registration failed",
+        confidence: Number.isFinite(confidenceValue) ? confidenceValue : null
+      });
+    }
+
+    student.faceRegisteredAt = new Date();
+    await student.save();
+
+    return res.status(200).json({
       success: true,
-      message: "Face capture submitted. Waiting for OpenCV verification.",
-      faceRegistered: Boolean(student.faceRegisteredAt)
+      message: "Face registration completed",
+      faceRegistered: true,
+      confidence: confidenceValue
     });
   } catch (error) {
     console.error("Register student face error:", error);

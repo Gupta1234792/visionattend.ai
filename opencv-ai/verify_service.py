@@ -47,7 +47,7 @@ class VerifyHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(payload).encode("utf-8"))
 
     def do_POST(self):
-        if self.path != "/verify":
+        if self.path not in ("/verify", "/register"):
             return self._send(404, {"success": False, "message": "Not found"})
 
         try:
@@ -61,11 +61,11 @@ class VerifyHandler(BaseHTTPRequestHandler):
         subject_id = str(payload.get("subjectId") or "").strip()
         image_data = payload.get("image")
 
-        if not user_id or not subject_id or not image_data:
+        if not user_id or not image_data:
             return self._send(400, {
                 "success": False,
                 "matched": False,
-                "message": "userId, subjectId and image are required"
+                "message": "userId and image are required"
             })
 
         frame = decode_image_from_dataurl(str(image_data))
@@ -83,13 +83,35 @@ class VerifyHandler(BaseHTTPRequestHandler):
 
         emb = detections[0].embedding
 
-        enrolled = list(faces.find({"subjectId": subject_id, "userId": user_id}))
+        if self.path == "/register":
+            faces.delete_many({"userId": user_id})
+            faces.insert_one({
+                "userId": user_id,
+                "subjectId": "GLOBAL",
+                "embedding": emb.tolist(),
+                "model": "arcface_buffalo_l"
+            })
+            return self._send(200, {
+                "success": True,
+                "matched": True,
+                "confidence": 1.0,
+                "message": "Face registered"
+            })
+
+        if not subject_id:
+            return self._send(400, {
+                "success": False,
+                "matched": False,
+                "message": "subjectId is required for verification"
+            })
+
+        enrolled = list(faces.find({"userId": user_id}))
         if not enrolled:
             return self._send(200, {
                 "success": False,
                 "matched": False,
                 "confidence": 0.0,
-                "message": "No enrolled face for this user/subject"
+                "message": "No enrolled face for this user"
             })
 
         best_score = 0.0
@@ -112,5 +134,5 @@ class VerifyHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = HTTPServer((HOST, PORT), VerifyHandler)
-    print(f"OpenCV verify service running on http://{HOST}:{PORT}/verify")
+    print(f"OpenCV service running on http://{HOST}:{PORT}/verify and /register")
     server.serve_forever()
