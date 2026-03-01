@@ -13,6 +13,7 @@ const registerRoles: UserRole[] = ["admin", "hod"];
 export default function AuthPage() {
   const router = useRouter();
   const { login, register, loading } = useAuth();
+
   const [mode, setMode] = useState<Mode>("login");
   const [message, setMessage] = useState("Login with your role account.");
 
@@ -53,65 +54,185 @@ export default function AuthPage() {
     setMessage(res.message);
     if (res.ok) {
       setMode("login");
-      setLoginForm((prev) => ({ ...prev, email: registerForm.email, role: registerForm.role }));
+      setLoginForm((prev) => ({
+        ...prev,
+        email: registerForm.email,
+        role: registerForm.role,
+      }));
     }
   };
 
   return (
-    <section className="flex min-h-screen items-center justify  p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-        <h1 className="text-xl font-semibold text-slate-900">Welcome to VisionAttend</h1>
-        <p className="mt-1 text-sm text-slate-600">Role-based ERP authentication</p>
+    <div className="min-h-screen bg-[#fff] flex items-center justify-center p-10">
 
-        <div className="mt-4 grid grid-cols-2 rounded-lg border border-slate-200 p-1 text-sm">
-          <button
-            type="button"
-            onClick={() => setMode("login")}
-            className={`rounded px-3 py-2 font-medium ${mode === "login" ? "bg-[#135ed8] text-white" : "text-slate-700"}`}
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("register")}
-            className={`rounded px-3 py-2 font-medium ${mode === "register" ? "bg-[#135ed8] text-white" : "text-slate-700"}`}
-          >
-            Register
-          </button>
+      {/* MAIN CARD */}
+      <div className="w-[1150px] h-[650px] bg-[#f3f3f3] rounded-[32px] shadow-[0_30px_80px_rgba(0,0,0,0.25)] flex overflow-hidden">
+
+        {/* LEFT SIDE — 50% */}
+        <div className="w-1/2 h-full px-20 py-16 flex flex-col justify-center">
+
+          <h1 className="text-[64px] font-extrabold text-[#111] leading-none tracking-tight">
+            Welcome
+          </h1>
+
+          <p className="text-sm text-gray-500 mt-3">
+            We are glad to see you back with us
+          </p>
+
+          {/* Toggle */}
+          <div className="mt-8 relative flex bg-gray-200 rounded-full p-1 w-[240px]">
+            <div
+              className={`absolute top-1 bottom-1 w-1/2 bg-black rounded-full transition-all duration-300 ${
+                mode === "register" ? "left-1/2" : "left-1"
+              }`}
+            />
+            <button
+              onClick={() => setMode("login")}
+              className={`relative z-10 w-1/2 text-sm py-2 font-medium ${
+                mode === "login" ? "text-white" : "text-gray-600"
+              }`}
+            >
+              Login
+            </button>
+            <button
+              onClick={() => setMode("register")}
+              className={`relative z-10 w-1/2 text-sm py-2 font-medium ${
+                mode === "register" ? "text-white" : "text-gray-600"
+              }`}
+            >
+              Register
+            </button>
+          </div>
+
+          {/* FORM */}
+          {mode === "login" ? (
+            <form onSubmit={onLogin} className="mt-8 space-y-5">
+
+              <input
+                type="email"
+                placeholder="Email"
+                value={loginForm.email}
+                onChange={(e) =>
+                  setLoginForm((p) => ({ ...p, email: e.target.value }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                required
+              />
+
+              <input
+                type="password"
+                placeholder="Password"
+                value={loginForm.password}
+                onChange={(e) =>
+                  setLoginForm((p) => ({ ...p, password: e.target.value }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                required
+              />
+
+              <select
+                value={loginForm.role}
+                onChange={(e) =>
+                  setLoginForm((p) => ({
+                    ...p,
+                    role: e.target.value as UserRole,
+                  }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+              >
+                {roles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                disabled={loading}
+                className="w-full bg-black text-white rounded-full py-4 text-sm font-semibold shadow-md hover:shadow-lg transition-all"
+                type="submit"
+              >
+                {loading ? "Processing..." : "NEXT"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={onRegister} className="mt-8 space-y-5">
+
+              <input
+                placeholder="Name"
+                value={registerForm.name}
+                onChange={(e) =>
+                  setRegisterForm((p) => ({ ...p, name: e.target.value }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                required
+              />
+
+              <input
+                type="email"
+                placeholder="Email"
+                value={registerForm.email}
+                onChange={(e) =>
+                  setRegisterForm((p) => ({ ...p, email: e.target.value }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                required
+              />
+
+              <input
+                type="password"
+                placeholder="Password"
+                value={registerForm.password}
+                onChange={(e) =>
+                  setRegisterForm((p) => ({ ...p, password: e.target.value }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                required
+              />
+
+              <select
+                value={registerForm.role}
+                onChange={(e) =>
+                  setRegisterForm((p) => ({
+                    ...p,
+                    role: e.target.value as UserRole,
+                  }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+              >
+                {registerRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                disabled={loading}
+                className="w-full bg-black text-white rounded-full py-4 text-sm font-semibold shadow-md hover:shadow-lg transition-all"
+                type="submit"
+              >
+                {loading ? "Processing..." : "Register"}
+              </button>
+            </form>
+          )}
+
+          <p className="mt-6 text-xs text-gray-500">{message}</p>
         </div>
 
-        {mode === "login" ? (
-          <form className="mt-4 space-y-3" onSubmit={onLogin}>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Email" type="email" value={loginForm.email} onChange={(e) => setLoginForm((p) => ({ ...p, email: e.target.value }))} required />
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Password" type="password" value={loginForm.password} onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))} required />
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={loginForm.role} onChange={(e) => setLoginForm((p) => ({ ...p, role: e.target.value as UserRole }))}>
-              {roles.map((role) => (
-                <option key={role} value={role}>{role}</option>
-              ))}
-            </select>
-            <button disabled={loading} className="w-full rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60" type="submit">
-              {loading ? "Logging in..." : "Login"}
-            </button>
-          </form>
-        ) : (
-          <form className="mt-4 space-y-3" onSubmit={onRegister}>
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Name" value={registerForm.name} onChange={(e) => setRegisterForm((p) => ({ ...p, name: e.target.value }))} required />
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Email" type="email" value={registerForm.email} onChange={(e) => setRegisterForm((p) => ({ ...p, email: e.target.value }))} required />
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Password" type="password" value={registerForm.password} onChange={(e) => setRegisterForm((p) => ({ ...p, password: e.target.value }))} required />
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={registerForm.role} onChange={(e) => setRegisterForm((p) => ({ ...p, role: e.target.value as UserRole }))}>
-              {registerRoles.map((role) => (
-                <option key={role} value={role}>{role}</option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-500">Student accounts are created only via classroom invite link/code.</p>
-            <button disabled={loading} className="w-full rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60" type="submit">
-              {loading ? "Registering..." : "Register"}
-            </button>
-          </form>
-        )}
+        {/* RIGHT SIDE — 50% FULL IMAGE */}
+        {/* RIGHT SIDE — 50% FULL IMAGE NO BG NO ROUND */}
+<div className="w-1/2 h-full">
 
-        <p className="mt-4 rounded-lg bg-slate-100 p-3 text-center text-xs text-slate-700">{message}</p>
+  <img
+    src="/student-image1.png"
+    alt="Student"
+    className="w-full h-full object-cover"
+  />
+
+</div>
+
       </div>
-    </section>
+    </div>
   );
 }
