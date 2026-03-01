@@ -1,11 +1,12 @@
 const User = require("../models/User.model");
 const { hashPassword, comparePassword } = require("../utils/password");
 const { generateToken } = require("../utils/jwt");
+const { logAudit } = require("../utils/audit");
 
 // ================= REGISTER =================
 const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, bootstrapKey } = req.body;
 
     if (!name || !email || !password || !role) {
       return res.status(400).json({
@@ -18,6 +19,30 @@ const register = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Student registration is invite-only. Use class invite link or code."
+      });
+    }
+
+    if (role === "hod") {
+      return res.status(403).json({
+        success: false,
+        message: "HOD signup is disabled on public endpoint. Create HOD via admin panel."
+      });
+    }
+
+    if (role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Public signup is restricted."
+      });
+    }
+
+    const existingAdminCount = await User.countDocuments({ role: "admin" });
+    const expectedBootstrapKey = process.env.ADMIN_BOOTSTRAP_KEY || "";
+    const shouldRequireKey = existingAdminCount > 0 || Boolean(expectedBootstrapKey);
+    if (shouldRequireKey && (!bootstrapKey || bootstrapKey !== expectedBootstrapKey)) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid admin bootstrap key"
       });
     }
 
@@ -37,6 +62,15 @@ const register = async (req, res) => {
       email,
       password: hashedPassword,
       role
+    });
+
+    await logAudit({
+      actor: user,
+      module: "auth",
+      action: "REGISTER",
+      entityType: "User",
+      entityId: user._id,
+      metadata: { role: user.role, email: user.email }
     });
 
     return res.status(201).json({
@@ -103,6 +137,15 @@ const login = async (req, res) => {
     const token = generateToken({
       userId: user._id,
       role: user.role
+    });
+
+    await logAudit({
+      actor: user,
+      module: "auth",
+      action: "LOGIN",
+      entityType: "User",
+      entityId: user._id,
+      metadata: { role: user.role }
     });
 
     return res.status(200).json({

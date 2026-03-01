@@ -12,8 +12,8 @@ from utils.mongo import faces
 
 load_dotenv()
 
-HOST = os.getenv("OPENCV_VERIFY_HOST", "127.0.0.1")
-PORT = int(os.getenv("OPENCV_VERIFY_PORT", "8001"))
+HOST = os.getenv("OPENCV_VERIFY_HOST", "0.0.0.0")
+PORT = int(os.getenv("OPENCV_VERIFY_PORT", os.getenv("PORT", "8001")))
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.65"))
 
 arc = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
@@ -130,6 +130,15 @@ class VerifyHandler(BaseHTTPRequestHandler):
             "confidence": float(best_score),
             "threshold": MATCH_THRESHOLD
         })
+
+    def do_GET(self):
+        if self.path == "/health":
+            return self._send(200, {
+                "success": True,
+                "message": "opencv verify service healthy",
+                "threshold": MATCH_THRESHOLD
+            })
+        return self._send(404, {"success": False, "message": "Not found"})
 
 
 if __name__ == "__main__":

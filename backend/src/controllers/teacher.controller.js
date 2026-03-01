@@ -1,6 +1,7 @@
 const User = require("../models/User.model");
 const { hashPassword } = require("../utils/password");
 const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
+const Subject = require("../models/Subject.model");
 
 const createTeacher = async (req, res) => {
   try {
@@ -117,6 +118,35 @@ const listTeachers = async (req, res) => {
 
 module.exports = {
   createTeacher,
-  listTeachers
+  listTeachers,
+  getTeacherGuardrails
 };
 
+async function getTeacherGuardrails(req, res) {
+  try {
+    if (req.user.role !== "teacher") {
+      return res.status(403).json({ success: false, message: "Only teacher can access guardrails" });
+    }
+
+    const subjects = await Subject.find({
+      teacher: req.user._id,
+      isActive: true
+    })
+      .select("_id name code")
+      .lean();
+
+    return res.json({
+      success: true,
+      guardrails: {
+        hasAssignedSubjects: subjects.length > 0,
+        assignedSubjectsCount: subjects.length,
+        canStartAttendance: subjects.length > 0,
+        canScheduleLecture: subjects.length > 0
+      },
+      subjects
+    });
+  } catch (error) {
+    console.error("getTeacherGuardrails error:", error);
+    return res.status(500).json({ success: false, message: "Failed to load subject guardrails" });
+  }
+}

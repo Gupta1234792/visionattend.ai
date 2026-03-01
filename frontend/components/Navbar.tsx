@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 import React from "react";
+import Image from "next/image";
 
 const Navbar = () => {
   const router = useRouter(); // ✅ MOVE IT HERE
@@ -13,16 +14,21 @@ const Navbar = () => {
         
         {/* Left Side - Combined Logo */}
         <div className="flex items-center cursor-pointer group">
-          <img
+          <Image
             src="/heroimg.png"
             alt="Profile"
+            width={48}
+            height={48}
             className="w-12 h-12 rounded-full object-cover transition duration-300 group-hover:scale-105"
           />
 
-          <img
+          <Image
             src="/logo.png"
             alt="Company Logo"
+            width={160}
+            height={64}
             className="w-40 -ml-4 mt-3 h-auto object-contain transition duration-300 group-hover:scale-105"
+            priority
           />
         </div>
 

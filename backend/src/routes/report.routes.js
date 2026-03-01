@@ -11,7 +11,8 @@ const {
   exportStudentDailyCSV,
   subjectReport,
   exportCSV,
-  exportPDF
+  exportPDF,
+  exportCenter
 } = require("../controllers/report.controller");
 
 router.get(
@@ -61,6 +62,13 @@ router.get(
   authMiddleware,
   roleMiddleware("admin", "hod", "coordinator", "teacher"),
   exportPDF
+);
+
+router.get(
+  "/export-center",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "coordinator", "teacher"),
+  exportCenter
 );
 
 module.exports = router;

@@ -29,14 +29,7 @@ const validateInviteToken = async (req, res) => {
       });
     }
 
-    if (invite.isUsed) {
-      return res.status(410).json({
-        success: false,
-        message: "Invite link already used"
-      });
-    }
-
-    if (invite.expiresAt < new Date()) {
+    if (!invite.isActive || invite.expiresAt < new Date()) {
       return res.status(410).json({
         success: false,
         message: "Invite link expired"
@@ -77,7 +70,7 @@ const registerStudent = async (req, res) => {
 
     const invite = await StudentInvite.findOne({ token: normalizedToken });
 
-    if (!invite || invite.isUsed || invite.expiresAt < new Date()) {
+    if (!invite || !invite.isActive || invite.expiresAt < new Date()) {
       return res.status(400).json({
         success: false,
         message: "Invalid or expired invite token"
@@ -106,9 +99,6 @@ const registerStudent = async (req, res) => {
       year: invite.year,
       division: invite.division
     });
-
-    invite.isUsed = true;
-    await invite.save();
 
     return res.status(201).json({
       success: true,
@@ -175,7 +165,7 @@ const resolveInviteCode = async (req, res) => {
     if (!invite) {
       invite = await StudentInvite.findOne({ token: normalizedCode.toLowerCase() });
     }
-    if (!invite || invite.isUsed || invite.expiresAt < new Date()) {
+    if (!invite || !invite.isActive || invite.expiresAt < new Date()) {
       return res.status(404).json({
         success: false,
         message: "Invalid or expired invite code"

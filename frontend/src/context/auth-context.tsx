@@ -8,7 +8,7 @@ type AuthContextType = {
   token: string;
   loading: boolean;
   login: (payload: { email: string; password: string; role: UserRole }) => Promise<{ ok: boolean; message: string }>;
-  register: (payload: { name: string; email: string; password: string; role: UserRole }) => Promise<{ ok: boolean; message: string }>;
+  register: (payload: { name: string; email: string; password: string; role: UserRole; bootstrapKey?: string }) => Promise<{ ok: boolean; message: string }>;
   logout: () => void;
 };
 
@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (payload: { name: string; email: string; password: string; role: UserRole }) => {
+  const register = async (payload: { name: string; email: string; password: string; role: UserRole; bootstrapKey?: string }) => {
     setLoading(true);
     try {
       const res = await registerRequest(payload);

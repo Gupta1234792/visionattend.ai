@@ -10,6 +10,7 @@ export default function StudentFaceRegisterPage() {
   const [message, setMessage] = useState("Register your face to continue.");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [waitingForConfirm, setWaitingForConfirm] = useState(false);
+  const [statusTag, setStatusTag] = useState<"idle" | "camera" | "opencv" | "retry" | "success">("idle");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -47,6 +48,7 @@ const getCameraErrorMessage = (error: unknown) => {
       setCameraOpen(true);
     } catch (error) {
       showAlert(getCameraErrorMessage(error));
+      setStatusTag("camera");
     }
   };
 
@@ -95,6 +97,7 @@ const getCameraErrorMessage = (error: unknown) => {
           localStorage.setItem("va_user", JSON.stringify(parsed));
         }
         setMessage("Face registration completed.");
+        setStatusTag("success");
         closeCamera();
         router.push("/student");
         return;
@@ -102,9 +105,16 @@ const getCameraErrorMessage = (error: unknown) => {
 
       setWaitingForConfirm(true);
       setMessage(res.data?.message || "Face submitted. Waiting for OpenCV verification.");
+      setStatusTag("opencv");
     } catch (error) {
       const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      showAlert(apiMessage || "Face registration failed.");
+      const msg = apiMessage || "Face registration failed.";
+      if (msg.toLowerCase().includes("confidence")) {
+        setStatusTag("retry");
+      } else if (msg.toLowerCase().includes("opencv") || msg.toLowerCase().includes("service")) {
+        setStatusTag("opencv");
+      }
+      showAlert(msg);
     }
   };
 
@@ -124,6 +134,7 @@ const getCameraErrorMessage = (error: unknown) => {
 
         setWaitingForConfirm(false);
         setMessage("Face registration verified. Redirecting...");
+        setStatusTag("success");
         router.push("/student");
       } catch {
         // keep polling silently
@@ -159,6 +170,9 @@ const getCameraErrorMessage = (error: unknown) => {
           <canvas ref={canvasRef} className="hidden" />
 
           <div className="mt-4 rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{message}</div>
+          {statusTag === "camera" ? <p className="mt-2 text-xs text-amber-700">Tip: browser settings me camera permission Allow karo, then retry.</p> : null}
+          {statusTag === "opencv" ? <p className="mt-2 text-xs text-amber-700">OpenCV service unreachable lag raha hai. Backend/OpenCV service health check karo.</p> : null}
+          {statusTag === "retry" ? <p className="mt-2 text-xs text-amber-700">Low confidence: face center me rakho, proper light use karo, blur avoid karo.</p> : null}
         </div>
       </section>
     </ProtectedRoute>

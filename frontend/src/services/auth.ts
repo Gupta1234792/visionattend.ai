@@ -31,6 +31,7 @@ export async function register(payload: {
   email: string;
   password: string;
   role: UserRole;
+  bootstrapKey?: string;
 }): Promise<AuthResponse> {
   const { data } = await publicApi.post<AuthResponse>("/auth/register", payload);
   return data;

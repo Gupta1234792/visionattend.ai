@@ -67,6 +67,26 @@ type ClassroomAttendance = {
   student?: { name?: string; rollNo?: string };
   subject?: { name?: string; code?: string };
 };
+type ClassroomCoordinator = {
+  _id: string;
+  name: string;
+  email: string;
+  year?: string;
+  division?: string;
+};
+type ClassroomBatchInfo = {
+  departmentId?: string;
+  departmentName?: string;
+  departmentCode?: string;
+  year?: string;
+  division?: string;
+};
+type TeacherGuardrails = {
+  hasAssignedSubjects: boolean;
+  assignedSubjectsCount: number;
+  canStartAttendance: boolean;
+  canScheduleLecture: boolean;
+};
 
 const years: YearValue[] = ["FY", "SY", "TY", "FINAL"];
 const divisions = ["A", "B", "C"];
@@ -79,11 +99,14 @@ export default function TeacherPage() {
   const [scheduledLectures, setScheduledLectures] = useState<ScheduledLecture[]>([]);
   const [reportRows, setReportRows] = useState<SubjectAttendanceRow[]>([]);
   const [classroomTeachers, setClassroomTeachers] = useState<Array<{ _id: string; name: string; email: string; subjects?: Array<{ name?: string; code?: string }> }>>([]);
+  const [classroomCoordinators, setClassroomCoordinators] = useState<ClassroomCoordinator[]>([]);
+  const [classroomBatchInfo, setClassroomBatchInfo] = useState<ClassroomBatchInfo | null>(null);
   const [classroomStudents, setClassroomStudents] = useState<ClassroomStudent[]>([]);
   const [classroomSessions, setClassroomSessions] = useState<ClassroomSession[]>([]);
   const [classroomAttendance, setClassroomAttendance] = useState<ClassroomAttendance[]>([]);
   const [inviteResult, setInviteResult] = useState<{ inviteLink: string; inviteCode: string } | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [guardrails, setGuardrails] = useState<TeacherGuardrails | null>(null);
 
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [year, setYear] = useState<YearValue>((user?.year as YearValue) || "FY");
@@ -129,6 +152,7 @@ export default function TeacherPage() {
     const subjectMatched = selectedSubjectId ? subjectId === selectedSubjectId : true;
     return Boolean(session.isActive) && session.date === today && subjectMatched;
   });
+  const [sessionCountdownSeconds, setSessionCountdownSeconds] = useState(0);
   const selectedSubjectName = useMemo(() => {
     const selected = subjects.find((item) => item._id === selectedSubjectId);
     return selected?.name || "All Subjects";
@@ -156,6 +180,22 @@ export default function TeacherPage() {
       absent,
     };
   }, [classroomTodayRows, classroomStudents]);
+  const pendingActions = useMemo(() => {
+    const items: string[] = [];
+    if (user?.role === "teacher" && guardrails && !guardrails.hasAssignedSubjects) {
+      items.push("No subject assigned. Ask HOD to map subjects.");
+    }
+    if (classroomCoordinators.length === 0) {
+      items.push("Class coordinator not assigned for selected batch.");
+    }
+    if (snapshot.totalStudents > snapshot.faceRegistered) {
+      items.push(`Face registration pending for ${snapshot.totalStudents - snapshot.faceRegistered} students.`);
+    }
+    if (!activeAttendanceSession) {
+      items.push("No active attendance session for selected subject.");
+    }
+    return items;
+  }, [user?.role, guardrails, classroomCoordinators.length, snapshot, activeAttendanceSession]);
 
   const addRemoteStream = (peerSocketId: string, stream: MediaStream) => {
     setRemoteStreams((prev) => {
@@ -258,11 +298,15 @@ export default function TeacherPage() {
     try {
       const res = await api.get(`/classroom/${batchKey}`);
       setClassroomTeachers(res.data.teachers || []);
+      setClassroomCoordinators(res.data.coordinators || []);
+      setClassroomBatchInfo(res.data.batchInfo || null);
       setClassroomStudents(res.data.students || []);
       setClassroomSessions(res.data.sessions || []);
       setClassroomAttendance(res.data.attendance || []);
     } catch {
       setClassroomTeachers([]);
+      setClassroomCoordinators([]);
+      setClassroomBatchInfo(null);
       setClassroomStudents([]);
       setClassroomSessions([]);
       setClassroomAttendance([]);
@@ -294,10 +338,21 @@ export default function TeacherPage() {
     }
   };
 
+  const loadGuardrails = async () => {
+    if (user?.role !== "teacher") return;
+    try {
+      const res = await api.get("/teachers/me/guardrails");
+      setGuardrails(res.data?.guardrails || null);
+    } catch {
+      setGuardrails(null);
+    }
+  };
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadSubjects();
+      void loadGuardrails();
       void loadClassroom();
       void loadAnnouncements();
       void loadMyLectures();
@@ -306,7 +361,16 @@ export default function TeacherPage() {
   }, [year, division, liveRoomId]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  // auto-polling removed to avoid noisy refresh loops; data is refreshed on load/actions
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!batchKey) return;
+    const interval = setInterval(() => {
+      void loadClassroom();
+      void loadMyLectures();
+    }, 25000);
+    return () => clearInterval(interval);
+  }, [batchKey, selectedSubjectId]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -325,6 +389,20 @@ export default function TeacherPage() {
     socket.on("chat-message", (payload: Announcement) => {
       if (payload?.roomId && payload.roomId !== liveRoomId) return;
       setAnnouncements((prev) => [...prev, payload]);
+    });
+
+    socket.on("ATTENDANCE_SESSION_STARTED", () => {
+      void loadClassroom();
+      pushToast("Attendance session started (realtime update).", "info");
+    });
+
+    socket.on("ATTENDANCE_MARKED", () => {
+      void loadClassroom();
+    });
+
+    socket.on("ATTENDANCE_SESSION_CLOSED", () => {
+      void loadClassroom();
+      pushToast("Attendance session closed.", "info");
     });
 
     socket.on("room-peer-left", ({ roomId, socketId: peerSocketId }: { roomId: string; socketId: string }) => {
@@ -389,6 +467,20 @@ export default function TeacherPage() {
     };
   }, [token, user?.college, liveRoomId, liveClassActive]);
   /* eslint-enable react-hooks/exhaustive-deps */
+
+  useEffect(() => {
+    if (!activeAttendanceSession?.endTime) {
+      setSessionCountdownSeconds(0);
+      return;
+    }
+    const update = () => {
+      const diffMs = new Date(activeAttendanceSession.endTime || 0).getTime() - Date.now();
+      setSessionCountdownSeconds(Math.max(0, Math.floor(diffMs / 1000)));
+    };
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [activeAttendanceSession?.endTime]);
 
 
   const getLocation = () =>
@@ -521,6 +613,36 @@ export default function TeacherPage() {
     }
   };
 
+  const exportSubjectReport = async (format: "csv" | "pdf") => {
+    if (!selectedSubjectId) {
+      setMessage("Select a subject first.");
+      return;
+    }
+
+    try {
+      const endpoint = `/reports/subject/${selectedSubjectId}/${format}`;
+      const res = await api.get(endpoint, { responseType: "blob" });
+      const blobType = format === "pdf" ? "application/pdf" : "text/csv;charset=utf-8;";
+      const blob = new Blob([res.data], { type: blobType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const selected = subjects.find((item) => item._id === selectedSubjectId);
+      const subjectCode = selected?.code || "subject";
+      link.href = url;
+      link.setAttribute("download", `${subjectCode}_attendance_report.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessage(`${format.toUpperCase()} report exported.`);
+      pushToast(`${format.toUpperCase()} exported.`, "success");
+    } catch (error) {
+      const msg = parseApiError(error, `Failed to export ${format.toUpperCase()}.`);
+      setMessage(msg);
+      pushToast(msg, "error");
+    }
+  };
+
   const flagClass = (flag?: "green" | "yellow" | "red") => {
     if (flag === "green") return "bg-green-100 text-green-700";
     if (flag === "yellow") return "bg-yellow-100 text-yellow-700";
@@ -591,8 +713,21 @@ export default function TeacherPage() {
       <DashboardLayout title={user?.role === "coordinator" ? "Coordinator Classroom Dashboard" : "Teacher Dashboard"}>
         <ToastStack toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((item) => item.id !== id))} />
         <div className="grid gap-4 xl:grid-cols-2">
+          {user?.role === "teacher" && guardrails && !guardrails.hasAssignedSubjects ? (
+            <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 xl:col-span-2">
+              <h2 className="text-base font-semibold text-amber-900">Subject Guardrail Active</h2>
+              <p className="mt-1 text-sm text-amber-800">
+                You are not assigned to any subject. HOD must map at least one subject before starting attendance or scheduling lectures.
+              </p>
+            </section>
+          ) : null}
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">My Subjects</h2>
+            {subjects.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
+                No subject is mapped to this teacher yet. Ask HOD to assign subjects before attendance/lecture actions.
+              </p>
+            ) : null}
             <ul className="mt-3 space-y-2 text-sm text-slate-700">
               {subjects.map((subject) => (
                 <li key={subject._id} className="rounded-lg border border-slate-200 px-3 py-2">
@@ -623,12 +758,30 @@ export default function TeacherPage() {
                 <p className="text-lg font-semibold text-amber-800">{snapshot.remote}</p>
               </div>
             </div>
-            <p className="mt-2 text-xs text-slate-600">Absent: {snapshot.absent} | Teachers in batch: {classroomTeachers.length}</p>
+            <p className="mt-2 text-xs text-slate-600">
+              Absent: {snapshot.absent} | Teachers in batch: {classroomTeachers.length} | Coordinators: {classroomCoordinators.length}
+            </p>
+            <div className="mt-2 rounded-lg border border-[#135ed8]/30 bg-[#135ed8]/5 px-3 py-2 text-xs text-slate-700">
+              <p><span className="font-semibold text-slate-900">Department:</span> {classroomBatchInfo?.departmentName || "-"} ({classroomBatchInfo?.departmentCode || "-"})</p>
+              <p className="mt-1"><span className="font-semibold text-slate-900">Class:</span> {classroomBatchInfo?.year || year}-{classroomBatchInfo?.division || division}</p>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h2 className="text-base font-semibold">Pending Actions</h2>
+            <p className="mt-2 text-sm text-slate-600">Quick checklist for today.</p>
+            <ul className="mt-3 space-y-2 text-sm text-slate-700">
+              {pendingActions.map((item) => (
+                <li key={item} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">{item}</li>
+              ))}
+              {pendingActions.length === 0 ? <li className="text-slate-500">No urgent teacher action pending.</li> : null}
+            </ul>
           </section>
 
           <section id="invite" className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">Virtual Classroom Invite</h2>
             <p className="mt-2 text-sm text-slate-600">Invite students by class year and division.</p>
+            <p className="mt-1 text-xs text-emerald-700">Generated link/code stays reusable for long term and can be shared with multiple students.</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={year} onChange={(e) => setYear(e.target.value as YearValue)}>
                 {years.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -657,23 +810,49 @@ export default function TeacherPage() {
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold">Virtual Classroom</h2>
-            <p className="mt-2 text-sm text-slate-600">Teachers in this class context ({year}-{division}).</p>
-            <ul className="mt-3 space-y-2 text-sm">
-              {classroomTeachers.slice(0, 5).map((teacher) => (
-                <li key={teacher._id} className="rounded-lg border border-slate-200 px-3 py-2">
-                  <p>{teacher.name} ({teacher.email})</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {(teacher.subjects || []).length
+            <h2 className="text-base font-semibold">Class Coordinator (Highlighted)</h2>
+            <p className="mt-2 text-sm text-slate-600">Current coordinators for {classroomBatchInfo?.year || year}-{classroomBatchInfo?.division || division}.</p>
+            <div className="mt-3 space-y-2">
+              {classroomCoordinators.map((coordinator) => (
+                <div key={coordinator._id} className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2">
+                  <p className="text-sm font-semibold text-violet-900">{coordinator.name}</p>
+                  <p className="text-xs text-violet-800">{coordinator.email}</p>
+                </div>
+              ))}
+              {classroomCoordinators.length === 0 ? (
+                <p className="text-sm text-slate-500">No class coordinator found for this division.</p>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+            <h2 className="text-base font-semibold">Top 4 Teachers With Full Class Detail</h2>
+            <p className="mt-2 text-sm text-slate-600">Department, class division and subject mapping summary.</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {classroomTeachers.slice(0, 4).map((teacher) => (
+                <article key={teacher._id} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-semibold text-slate-900">{teacher.name}</p>
+                  <p className="text-xs text-slate-600">{teacher.email}</p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Department: {classroomBatchInfo?.departmentName || "-"} ({classroomBatchInfo?.departmentCode || "-"})
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Class: {classroomBatchInfo?.year || year}-{classroomBatchInfo?.division || division}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Coordinator: {classroomCoordinators[0]?.name || "Not assigned"}
+                  </p>
+                  <p className="mt-2 text-xs text-slate-700">
+                    Subjects: {(teacher.subjects || []).length
                       ? teacher.subjects?.map((subject) => `${subject.name || "-"}${subject.code ? ` (${subject.code})` : ""}`).join(", ")
                       : "No mapped subjects"}
                   </p>
-                </li>
+                </article>
               ))}
               {classroomTeachers.length === 0 ? (
-                <li className="text-slate-500">No teachers found for this classroom.</li>
+                <p className="text-sm text-slate-500">No teachers found for this classroom.</p>
               ) : null}
-            </ul>
+            </div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
@@ -756,7 +935,7 @@ export default function TeacherPage() {
                 onChange={(e) => setLectureForm((prev) => ({ ...prev, durationMinutes: Number(e.target.value) || 60 }))}
               />
             </div>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="button" onClick={scheduleLecture}>
+            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={scheduleLecture} disabled={subjects.length === 0 || (user?.role === "teacher" && guardrails?.canScheduleLecture === false)}>
               Schedule and Share
             </button>
           </section>
@@ -882,9 +1061,15 @@ export default function TeacherPage() {
             </div>
             <p className="mt-2 text-sm text-slate-600">Teacher/coordinator starts one attendance session per subject-batch each day. Students scan face + geo to mark attendance.</p>
             {activeAttendanceSession ? (
-              <p className="mt-2 text-xs text-red-700">
-                Active session started at {activeAttendanceSession.startTime ? new Date(activeAttendanceSession.startTime).toLocaleTimeString() : "-"} and closes at {activeAttendanceSession.endTime ? new Date(activeAttendanceSession.endTime).toLocaleTimeString() : "-"}.
-              </p>
+              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <p>
+                  Active session started at {activeAttendanceSession.startTime ? new Date(activeAttendanceSession.startTime).toLocaleTimeString() : "-"} and closes at {activeAttendanceSession.endTime ? new Date(activeAttendanceSession.endTime).toLocaleTimeString() : "-"}.
+                </p>
+                <p className="mt-2 text-center text-4xl font-extrabold tracking-wide text-red-700">
+                  {String(Math.floor(sessionCountdownSeconds / 60)).padStart(2, "0")}:{String(sessionCountdownSeconds % 60).padStart(2, "0")}
+                </p>
+                <p className="mt-1 text-center text-[11px] font-semibold uppercase">Attendance Window Countdown</p>
+              </div>
             ) : (
               <p className="mt-2 text-xs text-slate-500">No active attendance session for selected subject today.</p>
             )}
@@ -903,7 +1088,7 @@ export default function TeacherPage() {
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <button className="rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="button" onClick={startAttendance}>Start Attendance</button>
+              <button className="rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={startAttendance} disabled={subjects.length === 0 || (user?.role === "teacher" && guardrails?.canStartAttendance === false)}>Start Attendance</button>
             </div>
           </section>
 
@@ -957,6 +1142,8 @@ export default function TeacherPage() {
                   ))}
                 </select>
                 <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" onClick={loadReport} type="button">Load Report</button>
+                <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" onClick={() => exportSubjectReport("csv")} type="button">Export CSV</button>
+                <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" onClick={() => exportSubjectReport("pdf")} type="button">Export PDF</button>
               </div>
             </div>
             <div className="mt-3 overflow-x-auto">

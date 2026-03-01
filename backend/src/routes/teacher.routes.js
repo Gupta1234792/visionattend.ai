@@ -3,7 +3,7 @@ const router = express.Router();
 
 const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
-const { createTeacher, listTeachers } = require("../controllers/teacher.controller");
+const { createTeacher, listTeachers, getTeacherGuardrails } = require("../controllers/teacher.controller");
 
 router.get(
   "/",
@@ -18,6 +18,13 @@ router.post(
   authMiddleware,
   roleMiddleware("hod"),
   createTeacher
+);
+
+router.get(
+  "/me/guardrails",
+  authMiddleware,
+  roleMiddleware("teacher"),
+  getTeacherGuardrails
 );
 
 module.exports = router;

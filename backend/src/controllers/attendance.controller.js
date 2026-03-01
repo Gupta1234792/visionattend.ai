@@ -6,6 +6,8 @@ const Department = require("../models/Department.model");
 const College = require("../models/College.model");
 const getDistanceInMeters = require("../utils/distance");
 const getBatchKey = require("../utils/batchKey");
+const { logAudit } = require("../utils/audit");
+const { emitToCollegeRoom } = require("../sockets/gateway");
 
 const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 30;
 const FACE_CONFIDENCE_THRESHOLD = 0.65;
@@ -57,6 +59,16 @@ const startAttendanceSession = async (req, res) => {
         success: false,
         message: "subjectId, latitude and longitude are required"
       });
+    }
+
+    if (req.user.role === "teacher") {
+      const assignedCount = await Subject.countDocuments({ teacher: req.user._id, isActive: true });
+      if (!assignedCount) {
+        return res.status(403).json({
+          success: false,
+          message: "Subject guardrail: no subject assigned to this teacher"
+        });
+      }
     }
 
     const tenantCheck = await ensureSubjectTenantAccess(subjectId, req.user);
@@ -137,6 +149,27 @@ const startAttendanceSession = async (req, res) => {
       message: `Attendance session started (${ATTENDANCE_LIMIT_MINUTES} min window)`,
       session
     });
+
+    emitToCollegeRoom(
+      String(req.user.college || ""),
+      `batch_${batchKey}`,
+      "ATTENDANCE_SESSION_STARTED",
+      {
+        sessionId: String(session._id),
+        subjectId: String(subject._id),
+        batchKey,
+        endTime: session.endTime
+      }
+    );
+
+    await logAudit({
+      actor: req.user,
+      module: "attendance",
+      action: "START_SESSION",
+      entityType: "AttendanceSession",
+      entityId: session._id,
+      metadata: { subjectId: String(subject._id), batchKey }
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -167,6 +200,26 @@ const closeAttendanceSession = async (req, res) => {
     session.isActive = false;
     session.endTime = new Date();
     await session.save();
+
+    emitToCollegeRoom(
+      String(req.user.college || ""),
+      `batch_${session.batchKey}`,
+      "ATTENDANCE_SESSION_CLOSED",
+      {
+        sessionId: String(session._id),
+        batchKey: session.batchKey,
+        endTime: session.endTime
+      }
+    );
+
+    await logAudit({
+      actor: req.user,
+      module: "attendance",
+      action: "CLOSE_SESSION",
+      entityType: "AttendanceSession",
+      entityId: session._id,
+      metadata: { classKey: session.classKey }
+    });
 
     res.json({
       success: true,
@@ -374,6 +427,20 @@ const markAttendance = async (req, res) => {
       message: "Attendance marked",
       attendance: record
     });
+
+    emitToCollegeRoom(
+      String(req.user.college || ""),
+      `batch_${session.batchKey}`,
+      "ATTENDANCE_MARKED",
+      {
+        sessionId: String(session._id),
+        subjectId: String(session.subject),
+        studentId: String(req.user._id),
+        status,
+        locationFlag,
+        markedAt: record.markedAt
+      }
+    );
   } catch (err) {
     if (err.code === 11000) {
       return res.status(409).json({
@@ -673,6 +740,21 @@ const scanFaceAndMarkAttendance = async (req, res) => {
       faceVerified: true,
       faceConfidence: confidenceValue
     });
+
+    emitToCollegeRoom(
+      String(req.user.college || ""),
+      `batch_${session.batchKey}`,
+      "ATTENDANCE_MARKED",
+      {
+        sessionId: String(session._id),
+        subjectId: String(session.subject),
+        studentId: String(req.user._id),
+        status,
+        locationFlag,
+        markedAt: record.markedAt,
+        faceVerified: true
+      }
+    );
 
     return res.status(201).json({
       success: true,

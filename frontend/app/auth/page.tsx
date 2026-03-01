@@ -2,13 +2,14 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@/src/context/auth-context";
 import { UserRole } from "@/src/services/auth";
 
 type Mode = "login" | "register";
 
 const roles: UserRole[] = ["admin", "hod", "teacher", "coordinator", "student", "parent"];
-const registerRoles: UserRole[] = ["admin", "hod"];
+const registerRoles: UserRole[] = ["admin"];
 
 export default function AuthPage() {
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function AuthPage() {
     email: "",
     password: "",
     role: "admin" as UserRole,
+    bootstrapKey: "",
   });
 
   const onLogin = async (e: FormEvent) => {
@@ -190,6 +192,16 @@ export default function AuthPage() {
                 required
               />
 
+              <input
+                type="password"
+                placeholder="Admin Bootstrap Key"
+                value={registerForm.bootstrapKey}
+                onChange={(e) =>
+                  setRegisterForm((p) => ({ ...p, bootstrapKey: e.target.value }))
+                }
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+              />
+
               <select
                 value={registerForm.role}
                 onChange={(e) =>
@@ -222,15 +234,16 @@ export default function AuthPage() {
 
         {/* RIGHT SIDE — 50% FULL IMAGE */}
         {/* RIGHT SIDE — 50% FULL IMAGE NO BG NO ROUND */}
-<div className="w-1/2 h-full">
-
-  <img
-    src="/student-image1.png"
-    alt="Student"
-    className="w-full h-full object-cover"
-  />
-
-</div>
+        <div className="w-1/2 h-full">
+          <Image
+            src="/student-image1.png"
+            alt="Student"
+            width={1000}
+            height={1300}
+            className="w-full h-full object-cover"
+            priority
+          />
+        </div>
 
       </div>
     </div>

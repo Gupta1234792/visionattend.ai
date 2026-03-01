@@ -5,6 +5,7 @@ const Event = require("../models/Event.model");
 const Notification = require("../models/Notification.model");
 const Subject = require("../models/Subject.model");
 const User = require("../models/User.model");
+const { logAudit } = require("../utils/audit");
 
 const VIDEO_ROOM_BASE_URL = process.env.VIDEO_ROOM_BASE_URL || "https://visionattend.local/room";
 
@@ -116,11 +117,22 @@ const scheduleLecture = async (req, res) => {
           type: "LECTURE_REMINDER",
           title: "Lecture Scheduled",
           message: `${title} is scheduled at ${lecture.scheduledAt.toISOString()}`,
-          relatedId: lecture._id
+          relatedId: lecture._id,
+          status: "scheduled",
+          scheduledFor: lecture.scheduledAt
         }));
         await Notification.insertMany(docs);
       }
     }
+
+    await logAudit({
+      actor: req.user,
+      module: "lecture",
+      action: "CREATE",
+      entityType: "OnlineLecture",
+      entityId: lecture._id,
+      metadata: { subjectId: String(subjectId), batchId }
+    });
 
     return res.status(201).json({ success: true, lecture });
   } catch (error) {
@@ -198,6 +210,15 @@ const updateLectureStatus = async (req, res, status) => {
     if (status === "ENDED") lecture.endedAt = new Date();
 
     await lecture.save();
+
+    await logAudit({
+      actor: req.user,
+      module: "lecture",
+      action: status === "LIVE" ? "START" : "END",
+      entityType: "OnlineLecture",
+      entityId: lecture._id,
+      metadata: { batchId: lecture.batchId }
+    });
 
     return res.json({ success: true, lecture });
   } catch (error) {

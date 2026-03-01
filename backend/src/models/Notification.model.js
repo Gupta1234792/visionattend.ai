@@ -22,7 +22,17 @@ const notificationSchema = new mongoose.Schema(
     message: { type: String, required: true },
     relatedId: { type: mongoose.Schema.Types.ObjectId, default: null },
     isRead: { type: Boolean, default: false, index: true },
-    readAt: { type: Date, default: null }
+    readAt: { type: Date, default: null },
+    status: {
+      type: String,
+      enum: ["scheduled", "delivered", "failed"],
+      default: "delivered",
+      index: true
+    },
+    scheduledFor: { type: Date, default: null, index: true },
+    deliveredAt: { type: Date, default: Date.now },
+    deliveryError: { type: String, default: null },
+    retryCount: { type: Number, default: 0 }
   },
   { timestamps: true }
 );

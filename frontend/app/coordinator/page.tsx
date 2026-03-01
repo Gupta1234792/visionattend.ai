@@ -50,6 +50,15 @@ export default function CoordinatorPage() {
   }, [year, division]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void loadClassroom();
+    }, 25000);
+    return () => clearInterval(interval);
+  }, [year, division]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
   const createInvite = async () => {
     if (!user?.department) {
       setMessage("Department mapping missing for coordinator.");
@@ -80,6 +89,7 @@ export default function CoordinatorPage() {
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">Student Invite</h2>
             <p className="mt-2 text-sm text-slate-600">Generate classroom invite for students using link and invite code.</p>
+            <p className="mt-1 text-xs text-emerald-700">Invite link/code remains reusable for multiple students and long-term sharing.</p>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={year} onChange={(e) => setYear(e.target.value as YearValue)}>

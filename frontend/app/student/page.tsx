@@ -43,6 +43,20 @@ type ClassroomTeacher = {
   email: string;
   subjects?: Array<{ name?: string; code?: string }>;
 };
+type ClassroomCoordinator = {
+  _id: string;
+  name: string;
+  email: string;
+  year?: string;
+  division?: string;
+};
+type ClassroomBatchInfo = {
+  departmentId?: string;
+  departmentName?: string;
+  departmentCode?: string;
+  year?: string;
+  division?: string;
+};
 type ActiveSessionMeta = {
   teacherName?: string;
   teacherEmail?: string;
@@ -65,6 +79,10 @@ export default function StudentPage() {
   const [upcomingLectures, setUpcomingLectures] = useState<BatchLecture[]>([]);
   const [dailyAttendance, setDailyAttendance] = useState<DailyAttendanceRow[]>([]);
   const [classroomTeachers, setClassroomTeachers] = useState<ClassroomTeacher[]>([]);
+  const [classroomCoordinators, setClassroomCoordinators] = useState<ClassroomCoordinator[]>([]);
+  const [classroomBatchInfo, setClassroomBatchInfo] = useState<ClassroomBatchInfo | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [faceHint, setFaceHint] = useState("");
   const [botMessages, setBotMessages] = useState<BotMessage[]>([
     {
       id: "welcome",
@@ -213,8 +231,12 @@ export default function StudentPage() {
     try {
       const res = await api.get(`/classroom/${batchKey}`);
       setClassroomTeachers(res.data?.teachers || []);
+      setClassroomCoordinators(res.data?.coordinators || []);
+      setClassroomBatchInfo(res.data?.batchInfo || null);
     } catch {
       setClassroomTeachers([]);
+      setClassroomCoordinators([]);
+      setClassroomBatchInfo(null);
     }
   };
 
@@ -238,6 +260,8 @@ export default function StudentPage() {
     const interval = setInterval(() => {
       void loadBatchLectures();
       void loadClassroomTeachers();
+      void loadDailyAttendance();
+      void loadHistory();
     }, 30000);
     return () => clearInterval(interval);
   }, [batchKey]);
@@ -257,6 +281,21 @@ export default function StudentPage() {
     socket.on("chat-message", (payload: Announcement) => {
       if (payload?.roomId && payload.roomId !== liveRoomId) return;
       setAnnouncements((prev) => [...prev, payload]);
+    });
+
+    socket.on("ATTENDANCE_SESSION_STARTED", () => {
+      setMessage("Attendance session started for your batch.");
+      void loadDailyAttendance();
+    });
+
+    socket.on("ATTENDANCE_MARKED", () => {
+      void loadDailyAttendance();
+      void loadHistory();
+    });
+
+    socket.on("ATTENDANCE_SESSION_CLOSED", () => {
+      setMessage("Attendance session closed.");
+      void loadDailyAttendance();
     });
 
     socket.on("room-peer-left", ({ roomId, socketId: peerSocketId }: { roomId: string; socketId: string }) => {
@@ -405,13 +444,23 @@ export default function StudentPage() {
             }
           : null
       );
+      setRemainingSeconds(Math.max(0, Math.floor(Number(res.data?.remainingMinutes || 0) * 60)));
       setMessage(res.data?.session?._id ? "Active session found." : "No active session.");
     } catch {
       setActiveSessionId("");
       setActiveSessionMeta(null);
+      setRemainingSeconds(0);
       setMessage("No active attendance session.");
     }
   };
+
+  useEffect(() => {
+    if (!activeSessionId || remainingSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setRemainingSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeSessionId, remainingSeconds]);
 
   const scanFaceAndMark = async () => {
     if (!activeSessionId) {
@@ -442,10 +491,21 @@ export default function StudentPage() {
       });
 
       setMessage("Attendance marked via face scan.");
+      setFaceHint("");
       closeAttendanceCamera();
       void loadHistory();
     } catch (error) {
-      setMessage(parseApiError(error, "Attendance failed: face/location validation failed."));
+      const msg = parseApiError(error, "Attendance failed: face/location validation failed.");
+      setMessage(msg);
+      if (msg.toLowerCase().includes("opencv") || msg.toLowerCase().includes("service")) {
+        setFaceHint("OpenCV service unreachable. Please retry in a few moments or contact admin.");
+      } else if (msg.toLowerCase().includes("confidence") || msg.toLowerCase().includes("not recognized")) {
+        setFaceHint("Low confidence: keep face centered, improve lighting, and retry scan.");
+      } else if (msg.toLowerCase().includes("permission")) {
+        setFaceHint("Camera/Location permission blocked. Enable permissions in browser settings.");
+      } else {
+        setFaceHint("");
+      }
     }
   };
 
@@ -579,6 +639,10 @@ export default function StudentPage() {
               <div className="mt-3 rounded-lg border border-[#135ed8]/30 bg-[#135ed8]/5 p-3 text-sm text-slate-700">
                 <p><span className="font-semibold">Started by:</span> {activeSessionMeta.teacherName || "-"} ({activeSessionMeta.teacherEmail || "-"})</p>
                 <p className="mt-1"><span className="font-semibold">Remaining:</span> {activeSessionMeta.remainingMinutes ?? 0} min</p>
+                <p className="mt-3 text-center text-4xl font-extrabold tracking-wide text-red-600">
+                  {String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")}
+                </p>
+                <p className="mt-1 text-center text-xs font-semibold uppercase text-red-700">Attendance Window Countdown</p>
               </div>
             ) : null}
 
@@ -590,6 +654,7 @@ export default function StudentPage() {
 
             {cameraOpen && <video ref={attendanceVideoRef} autoPlay playsInline muted className="mt-3 w-full rounded-lg border border-slate-200" />}
             <canvas ref={attendanceCanvasRef} className="hidden" />
+            {faceHint ? <p className="mt-2 text-xs text-amber-700">{faceHint}</p> : null}
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -724,36 +789,50 @@ export default function StudentPage() {
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
-            <h2 className="text-base font-semibold">Virtual Classroom Teachers</h2>
-            <p className="mt-2 text-sm text-slate-600">Your classroom faculty list with mapped subjects.</p>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">Teacher</th>
-                    <th className="py-2">Email</th>
-                    <th className="py-2">Subjects</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {classroomTeachers.slice(0, 5).map((teacher) => (
-                    <tr key={teacher._id} className="border-b border-slate-100">
-                      <td className="py-2">{teacher.name || "-"}</td>
-                      <td className="py-2">{teacher.email || "-"}</td>
-                      <td className="py-2">
-                        {(teacher.subjects || []).length
-                          ? teacher.subjects?.map((s) => `${s.name || "-"}${s.code ? ` (${s.code})` : ""}`).join(", ")
-                          : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                  {classroomTeachers.length === 0 ? (
-                    <tr>
-                      <td className="py-3 text-slate-500" colSpan={3}>No classroom teachers available.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+            <h2 className="text-base font-semibold">Virtual Classroom Details</h2>
+            <p className="mt-2 text-sm text-slate-600">Department, class division, class coordinator and top 4 teacher mappings.</p>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Department</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">{classroomBatchInfo?.departmentName || "-"}</p>
+                <p className="text-xs text-slate-600">{classroomBatchInfo?.departmentCode || "-"}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Class</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">{classroomBatchInfo?.year || user?.year || "-"}-{classroomBatchInfo?.division || user?.division || "-"}</p>
+                <p className="text-xs text-slate-600">Batch Key: {batchKey || "-"}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-violet-700">Class Coordinator</p>
+              {classroomCoordinators.length > 0 ? (
+                classroomCoordinators.map((coordinator) => (
+                  <p key={coordinator._id} className="mt-1 text-sm font-semibold text-violet-900">
+                    {coordinator.name} ({coordinator.email})
+                  </p>
+                ))
+              ) : (
+                <p className="mt-1 text-sm text-violet-900">Not assigned yet.</p>
+              )}
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {classroomTeachers.slice(0, 4).map((teacher) => (
+                <article key={teacher._id} className="rounded-xl border border-slate-200 p-3">
+                  <p className="text-sm font-semibold text-slate-900">{teacher.name || "-"}</p>
+                  <p className="text-xs text-slate-600">{teacher.email || "-"}</p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Subjects: {(teacher.subjects || []).length
+                      ? teacher.subjects?.map((s) => `${s.name || "-"}${s.code ? ` (${s.code})` : ""}`).join(", ")
+                      : "No mapped subjects"}
+                  </p>
+                </article>
+              ))}
+              {classroomTeachers.length === 0 ? (
+                <p className="text-sm text-slate-500">No classroom teachers available.</p>
+              ) : null}
             </div>
           </section>
 

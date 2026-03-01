@@ -23,6 +23,8 @@ const notificationRoutes = require("./routes/notification.routes");
 const parentRoutes = require("./routes/parent.routes");
 const assistantRoutes = require("./routes/assistant.routes");
 const adminRoutes = require("./routes/admin.routes");
+const { authRateLimit, inviteRateLimit, attendanceRateLimit } = require("./middlewares/rateLimit.middleware");
+const { checkOpenCvHealth } = require("./startup/opencv");
 
 const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
@@ -34,16 +36,16 @@ app.use(cors({
 app.use(express.json());
 app.use(morgan("dev"));
 
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRateLimit, authRoutes);
 app.use("/api/colleges", collegeRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/hods", hodRoutes);
 app.use("/api/coordinators", coordinatorRoutes);
 app.use("/api/teachers", teacherRoutes);
-app.use("/api/student-invite", studentInviteRoutes);
+app.use("/api/student-invite", inviteRateLimit, studentInviteRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/subjects", subjectRoutes);
-app.use("/api/attendance", attendanceRoutes);
+app.use("/api/attendance", attendanceRateLimit, attendanceRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/classroom", classroomRoutes);
@@ -59,6 +61,14 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
     message: "VisionAttend backend running"
+  });
+});
+
+app.get("/health/opencv", async (req, res) => {
+  const report = await checkOpenCvHealth();
+  return res.status(report.ok ? 200 : 503).json({
+    success: report.ok,
+    ...report
   });
 });
 

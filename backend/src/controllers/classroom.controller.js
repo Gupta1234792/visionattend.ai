@@ -19,6 +19,7 @@ exports.getClassroomData = async (req, res) => {
     const user = req.user;
     const sessionFilter = { batchKey };
     const batchParts = String(batchKey).split("_");
+    const batchDepartment = batchParts[0] || "";
     const batchYear = batchParts[batchParts.length - 2] || "";
     const batchDivision = batchParts[batchParts.length - 1] || "";
 
@@ -106,6 +107,23 @@ exports.getClassroomData = async (req, res) => {
       subjects: subjectsByTeacher.get(String(teacher._id)) || []
     }));
 
+    const coordinatorQuery = {
+      role: "coordinator",
+      isActive: true,
+      year: batchYear,
+      division: batchDivision
+    };
+
+    if (user.college) coordinatorQuery.college = user.college;
+    if (batchDepartment) coordinatorQuery.department = batchDepartment;
+    if (user.role === "hod" || user.role === "coordinator" || user.role === "student") {
+      coordinatorQuery.department = user.department;
+    }
+
+    const coordinators = await User.find(coordinatorQuery)
+      .select("name email year division department")
+      .lean();
+
     const studentQuery = {
       role: "student",
       isActive: true,
@@ -125,9 +143,21 @@ exports.getClassroomData = async (req, res) => {
       .sort({ rollNo: 1, name: 1 })
       .lean();
 
+    const departmentDoc = await Department.findById(batchDepartment || user.department)
+      .select("name code")
+      .lean();
+
     return res.json({
       success: true,
+      batchInfo: {
+        departmentId: batchDepartment || user.department || "",
+        departmentName: departmentDoc?.name || "",
+        departmentCode: departmentDoc?.code || "",
+        year: batchYear,
+        division: batchDivision
+      },
       teachers: teachersWithSubjects,
+      coordinators,
       students,
       sessions,
       attendance

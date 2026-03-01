@@ -3,6 +3,7 @@ const User = require("../models/User.model");
 const OnlineLecture = require("../models/OnlineLecture.model");
 const PTMSchedule = require("../models/PTMSchedule.model");
 const { verifyToken } = require("../utils/jwt");
+const { setSocketServer } = require("./gateway");
 
 const getTokenFromHandshake = (socket) => {
   const authToken = socket.handshake?.auth?.token;
@@ -21,6 +22,7 @@ const getTokenFromHandshake = (socket) => {
 const isStaff = (role) => ["admin", "hod", "teacher", "coordinator"].includes(role);
 
 module.exports = (io) => {
+  setSocketServer(io);
   const collegeNamespace = io.of(/^\/college\/[a-fA-F0-9]{24}$/);
 
   collegeNamespace.use(async (socket, next) => {

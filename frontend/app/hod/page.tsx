@@ -13,6 +13,7 @@ export default function HodPage() {
   const [department, setDepartment] = useState<Department | null>(null);
   const [teacherCount, setTeacherCount] = useState(0);
   const [subjectCount, setSubjectCount] = useState(0);
+  const [activities, setActivities] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -31,6 +32,14 @@ export default function HodPage() {
           setDepartment(departments[0] || null);
           setTeacherCount(teachers.length);
           setSubjectCount(subjects.length);
+          const actions: string[] = [];
+          if (!departments[0]) actions.push("Department not mapped. Ask admin to map HOD department.");
+          if (teachers.length === 0) actions.push("No teachers assigned. Create teachers first.");
+          if (subjects.length === 0) actions.push("No subjects created yet. Assign subjects to teachers.");
+          if (teachers.length > 0 && subjects.length < teachers.length) {
+            actions.push("Some teachers may be unmapped to subjects.");
+          }
+          setActivities(actions);
           setMessage("Use sidebar tabs for separated workflows.");
         } catch (error) {
           const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -74,6 +83,16 @@ export default function HodPage() {
               <p className="mt-1 text-sm text-[#135ed8]">Open Subjects Tab</p>
             </Link>
           </div>
+        </section>
+
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
+          <h2 className="text-lg font-semibold text-slate-900">Pending Actions</h2>
+          <ul className="mt-3 space-y-2 text-sm text-slate-700">
+            {activities.map((item) => (
+              <li key={item} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">{item}</li>
+            ))}
+            {activities.length === 0 ? <li className="text-slate-500">No urgent HOD action pending.</li> : null}
+          </ul>
         </section>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>

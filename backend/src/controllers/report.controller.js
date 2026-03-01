@@ -1,6 +1,7 @@
 const AttendanceRecord = require("../models/AttendanceRecord.model");
 const AttendanceSession = require("../models/AttendanceSession.model");
 const Subject = require("../models/Subject.model");
+const Department = require("../models/Department.model");
 
 const { Parser } = require("json2csv");
 const PDFDocument = require("pdfkit");
@@ -359,5 +360,135 @@ exports.exportPDF = async (req, res) => {
       success: false,
       message: "PDF export failed"
     });
+  }
+};
+
+const toDateKey = (value) => {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().split("T")[0];
+};
+
+exports.exportCenter = async (req, res) => {
+  try {
+    const format = String(req.query.format || "json").toLowerCase();
+    const dateFrom = toDateKey(req.query.dateFrom);
+    const dateTo = toDateKey(req.query.dateTo);
+    const batchKey = String(req.query.batchKey || "").trim();
+    const subjectId = String(req.query.subjectId || "").trim();
+
+    const sessionQuery = {};
+    if (subjectId) sessionQuery.subject = subjectId;
+    if (batchKey) sessionQuery.batchKey = batchKey;
+    if (dateFrom || dateTo) {
+      sessionQuery.date = {};
+      if (dateFrom) sessionQuery.date.$gte = dateFrom;
+      if (dateTo) sessionQuery.date.$lte = dateTo;
+    }
+
+    if (req.user.role === "teacher") {
+      sessionQuery.teacher = req.user._id;
+    }
+
+    if (["hod", "coordinator"].includes(req.user.role)) {
+      sessionQuery.department = req.user.department;
+    }
+
+    if (req.user.role === "admin" && req.user.college) {
+      const departmentIds = await Department.find({ college: req.user.college }).distinct("_id");
+      sessionQuery.department = { $in: departmentIds };
+    }
+
+    const sessions = await AttendanceSession.find(sessionQuery)
+      .select("_id date batchKey subject teacher")
+      .populate("subject", "name code")
+      .lean();
+
+    if (!sessions.length) {
+      if (format === "csv") {
+        const parser = new Parser();
+        const csv = parser.parse([]);
+        res.header("Content-Type", "text/csv");
+        res.attachment("attendance_export_center.csv");
+        return res.send(csv);
+      }
+      if (format === "pdf") {
+        const doc = new PDFDocument({ margin: 40 });
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", "attachment; filename=attendance_export_center.pdf");
+        doc.pipe(res);
+        doc.fontSize(14).text("No attendance data for selected filters");
+        doc.end();
+        return;
+      }
+      return res.json({ success: true, rows: [], summary: { totalRecords: 0 } });
+    }
+
+    const sessionIds = sessions.map((s) => s._id);
+    const records = await AttendanceRecord.find({
+      session: { $in: sessionIds }
+    })
+      .populate("student", "name rollNo year division")
+      .populate("subject", "name code")
+      .sort({ markedAt: -1 })
+      .lean();
+
+    const sessionMap = new Map(sessions.map((s) => [String(s._id), s]));
+    const rows = records.map((record) => {
+      const session = sessionMap.get(String(record.session));
+      return {
+        Date: session?.date || "",
+        BatchKey: session?.batchKey || "",
+        Subject: record.subject?.name || session?.subject?.name || "",
+        SubjectCode: record.subject?.code || session?.subject?.code || "",
+        StudentName: record.student?.name || "",
+        RollNo: record.student?.rollNo || "",
+        Year: record.student?.year || "",
+        Division: record.student?.division || "",
+        Status: record.status,
+        Flag: record.locationFlag || "",
+        CollegeDistanceMeters: record.distanceMeters ?? "",
+        SessionDistanceMeters: record.gpsDistance ?? "",
+        FaceVerified: record.faceVerified ? "Yes" : "No",
+        MarkedAt: record.markedAt ? new Date(record.markedAt).toISOString() : ""
+      };
+    });
+
+    const summary = {
+      totalRecords: rows.length,
+      present: rows.filter((r) => r.Status === "present").length,
+      remote: rows.filter((r) => r.Status === "remote").length,
+      absent: rows.filter((r) => r.Status === "absent").length
+    };
+
+    if (format === "csv") {
+      const parser = new Parser();
+      const csv = parser.parse(rows);
+      res.header("Content-Type", "text/csv");
+      res.attachment("attendance_export_center.csv");
+      return res.send(csv);
+    }
+
+    if (format === "pdf") {
+      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=attendance_export_center.pdf");
+      doc.pipe(res);
+      doc.fontSize(16).text("Attendance Export Center", { align: "center" });
+      doc.moveDown();
+      doc.fontSize(11).text(`Total: ${summary.totalRecords} | Present: ${summary.present} | Remote: ${summary.remote} | Absent: ${summary.absent}`);
+      doc.moveDown();
+      rows.slice(0, 300).forEach((row) => {
+        doc.fontSize(9).text(`${row.Date} | ${row.SubjectCode} | ${row.RollNo} | ${row.StudentName} | ${row.Status.toUpperCase()} | ${row.Flag || "-"}`);
+      });
+      doc.end();
+      return;
+    }
+
+    return res.json({ success: true, rows, summary });
+  } catch (error) {
+    console.error("exportCenter error:", error);
+    return res.status(500).json({ success: false, message: "Failed to generate export center data" });
   }
 };

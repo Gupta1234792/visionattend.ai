@@ -52,6 +52,20 @@ const studentInviteSchema = new mongoose.Schema(
     isUsed: {
       type: Boolean,
       default: false
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
+    disabledAt: {
+      type: Date,
+      default: null
+    },
+    disabledBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
     }
   },
   { timestamps: true }

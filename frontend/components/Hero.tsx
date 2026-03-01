@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "next/image";
 
 const Hero = () => {
   return (
@@ -29,11 +30,13 @@ const Hero = () => {
         <div className="relative z-10 overflow-hidden rounded-xl">
 
           {/* Hero Image */}
-          <img
+          <Image
             width={800}
+            height={520}
             className="block"
             src="/heroimg.png"
             alt="Hero"
+            priority
           />
 
           {/* Scanning Line */}
