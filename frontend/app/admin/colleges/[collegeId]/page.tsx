@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
+import { addressLines, parseAddressString } from "@/src/utils/address";
 
 type CollegeProfile = {
   _id: string;
@@ -19,19 +21,10 @@ type CollegeProfile = {
 
 export default function AdminCollegeProfilePage() {
   const params = useParams<{ collegeId: string }>();
+  const searchParams = useSearchParams();
   const collegeId = params?.collegeId;
   const [message, setMessage] = useState("Loading college profile...");
   const [profile, setProfile] = useState<CollegeProfile | null>(null);
-  const [form, setForm] = useState({
-    name: "",
-    code: "",
-    address: "",
-    description: "",
-    website: "",
-    logoUrl: "",
-    latitude: 0,
-    longitude: 0
-  });
 
   const loadProfile = async () => {
     if (!collegeId) return;
@@ -39,16 +32,6 @@ export default function AdminCollegeProfilePage() {
       const res = await api.get(`/colleges/${collegeId}`);
       const c = res.data?.college;
       setProfile(c || null);
-      setForm({
-        name: c?.name || "",
-        code: c?.code || "",
-        address: c?.address || "",
-        description: c?.description || "",
-        website: c?.website || "",
-        logoUrl: c?.logoUrl || "",
-        latitude: Number(c?.location?.latitude || 0),
-        longitude: Number(c?.location?.longitude || 0)
-      });
       setMessage("College profile loaded.");
     } catch (error) {
       const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -61,50 +44,99 @@ export default function AdminCollegeProfilePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collegeId]);
 
-  const onSave = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!collegeId) return;
-    try {
-      await api.patch(`/colleges/${collegeId}`, form);
-      setMessage("College profile updated.");
-      void loadProfile();
-    } catch (error) {
-      const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setMessage(apiMessage || "Failed to update college profile.");
+  useEffect(() => {
+    if (searchParams.get("updated") === "1") {
+      setMessage("College profile updated successfully.");
     }
-  };
+  }, [searchParams]);
+
+  const websiteHref = useMemo(() => {
+    if (!profile?.website) return "";
+    if (profile.website.startsWith("http://") || profile.website.startsWith("https://")) {
+      return profile.website;
+    }
+    return `https://${profile.website}`;
+  }, [profile?.website]);
+
+  const parsedAddressLines = useMemo(() => addressLines(parseAddressString(profile?.address)), [profile?.address]);
 
   return (
     <ProtectedRoute allow={["admin"]}>
       <DashboardLayout title="College Profile">
-        <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="mx-auto h-24 w-24 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-              {profile?.logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={profile.logoUrl} alt={profile.name} className="h-full w-full object-cover" />
-              ) : null}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="h-36 bg-gradient-to-r from-[#0a66c2] via-[#1d74d1] to-[#83b4e8]" />
+          <div className="px-6 pb-6">
+            <div className="-mt-14 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div className="flex items-end gap-4">
+                <div className="h-28 w-28 overflow-hidden rounded-2xl border-4 border-white bg-slate-100 shadow-sm">
+                  {profile?.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={profile.logoUrl} alt={profile.name} className="h-full w-full object-cover" />
+                  ) : null}
+                </div>
+                <div className="pb-1">
+                  <h2 className="text-2xl font-bold text-slate-900">{profile?.name || "College"}</h2>
+                  <p className="mt-1 text-sm font-medium text-slate-600">{profile?.code || "-"}</p>
+                  <p className="mt-1 text-sm text-slate-500">{profile?.address || "-"}</p>
+                </div>
+              </div>
+              <Link
+                href={`/admin/colleges/${collegeId}/edit`}
+                className="inline-flex items-center justify-center rounded-full bg-[#0a66c2] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#084f97]"
+              >
+                Edit Profile
+              </Link>
             </div>
-            <h2 className="mt-3 text-center text-base font-semibold text-slate-900">{profile?.name || "College"}</h2>
-            <p className="mt-1 text-center text-sm text-slate-600">{profile?.code || "-"}</p>
-            <p className="mt-2 text-xs text-slate-500">{profile?.address || "-"}</p>
-            <p className="mt-2 text-xs text-slate-500">{profile?.description || "No description yet."}</p>
+          </div>
+        </section>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-900">About</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              {profile?.description || "No description added yet."}
+            </p>
           </section>
 
-          <form onSubmit={onSave} className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="text-base font-semibold">Edit College Profile</h3>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Name" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Code" value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" placeholder="Address" value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" placeholder="Description" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Website" value={form.website} onChange={(e) => setForm((p) => ({ ...p, website: e.target.value }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Logo URL" value={form.logoUrl} onChange={(e) => setForm((p) => ({ ...p, logoUrl: e.target.value }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="number" step="0.000001" placeholder="Latitude" value={form.latitude} onChange={(e) => setForm((p) => ({ ...p, latitude: Number(e.target.value) }))} />
-              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="number" step="0.000001" placeholder="Longitude" value={form.longitude} onChange={(e) => setForm((p) => ({ ...p, longitude: Number(e.target.value) }))} />
-            </div>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="submit">Save Changes</button>
-          </form>
+          <aside className="space-y-4">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-base font-semibold text-slate-900">Contact</h3>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                <p>
+                  <span className="font-semibold text-slate-900">Address:</span> {profile?.address || "-"}
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-900">Website:</span>{" "}
+                  {websiteHref ? (
+                    <a
+                      href={websiteHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-[#0a66c2] hover:underline"
+                    >
+                      {profile?.website}
+                    </a>
+                  ) : (
+                    "-"
+                  )}
+                </p>
+              </div>
+            </section>
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-base font-semibold text-slate-900">Location</h3>
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                {parsedAddressLines.length > 0 ? (
+                  parsedAddressLines.map((line, index) => (
+                    <p key={`${line}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2">
+                      {line}
+                    </p>
+                  ))
+                ) : (
+                  <p className="rounded-lg bg-slate-50 px-3 py-2">Address not available.</p>
+                )}
+              </div>
+            </section>
+          </aside>
         </div>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>
@@ -112,4 +144,3 @@ export default function AdminCollegeProfilePage() {
     </ProtectedRoute>
   );
 }
-

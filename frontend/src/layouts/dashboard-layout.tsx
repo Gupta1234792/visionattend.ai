@@ -8,7 +8,7 @@ const menuByRole: Record<string, Array<{ href: string; label: string }>> = {
   admin: [
     { href: "/admin", label: "Admin Dashboard" },
     { href: "/admin/colleges", label: "Colleges" },
-    { href: "/admin/hods", label: "Assign HOD" },
+    { href: "/admin/hods", label: "HODs" },
     { href: "/admin/users", label: "Users" },
   ],
   hod: [

@@ -1,159 +1,80 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
-import { useAuth } from "@/src/context/auth-context";
 
-type Teacher = { _id: string; name: string; email: string };
 type Department = { _id: string; name: string; code: string };
 
-type YearValue = "FY" | "SY" | "TY" | "FINAL";
-
-const years: YearValue[] = ["FY", "SY", "TY", "FINAL"];
-const divisions = ["A", "B", "C"];
-
 export default function HodPage() {
-  const { user } = useAuth();
-  const [message, setMessage] = useState("HOD workflow ready.");
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [message, setMessage] = useState("Loading HOD overview...");
   const [department, setDepartment] = useState<Department | null>(null);
+  const [teacherCount, setTeacherCount] = useState(0);
+  const [subjectCount, setSubjectCount] = useState(0);
 
-  const [teacherForm, setTeacherForm] = useState({ name: "", email: "", password: "" });
-  const [coordinatorForm, setCoordinatorForm] = useState({
-    name: "",
-    email: "",
-    password: "",
-    year: "FY" as YearValue,
-    division: "A",
-  });
-  const [subjectForm, setSubjectForm] = useState({ name: "", code: "", teacherId: "" });
-
-  const parseApiError = (error: unknown, fallback: string) => {
-    const maybeMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-    return maybeMessage || fallback;
-  };
-
-  const loadTeachers = async () => {
-    try {
-      const res = await api.get("/teachers");
-      const list = res.data.teachers || [];
-      setTeachers(list);
-      if (!subjectForm.teacherId && list[0]) {
-        setSubjectForm((prev) => ({ ...prev, teacherId: list[0]._id }));
-      }
-    } catch (error) {
-      setMessage(parseApiError(error, "Failed to fetch teachers"));
-    }
-  };
-
-  const loadDepartment = async () => {
-    try {
-      const res = await api.get("/departments");
-      const list = res.data.departments || [];
-      if (list[0]) {
-        setDepartment(list[0]);
-      } else if (user?.department) {
-        setDepartment({ _id: user.department, name: "Assigned Department", code: "N/A" });
-      }
-    } catch (error) {
-      setMessage(parseApiError(error, "Failed to fetch department"));
-    }
-  };
-
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const timer = setTimeout(() => {
-      void loadTeachers();
-      void loadDepartment();
+      const load = async () => {
+        try {
+          const [departmentRes, teacherRes, subjectRes] = await Promise.all([
+            api.get("/departments"),
+            api.get("/teachers"),
+            api.get("/subjects/mine"),
+          ]);
+
+          const departments = departmentRes.data?.departments || [];
+          const teachers = teacherRes.data?.teachers || [];
+          const subjects = subjectRes.data?.subjects || [];
+
+          setDepartment(departments[0] || null);
+          setTeacherCount(teachers.length);
+          setSubjectCount(subjects.length);
+          setMessage("Use sidebar tabs for separated workflows.");
+        } catch (error) {
+          const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          setMessage(apiMessage || "Failed to load HOD overview.");
+        }
+      };
+      void load();
     }, 0);
+
     return () => clearTimeout(timer);
   }, []);
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  const onSubmit = async (
-    e: FormEvent,
-    path: string,
-    body: Record<string, unknown>,
-    success: string,
-    onDone?: () => void
-  ) => {
-    e.preventDefault();
-    try {
-      await api.post(path, body);
-      setMessage(success);
-      onDone?.();
-    } catch (error) {
-      setMessage(parseApiError(error, `Failed: ${success}`));
-    }
-  };
 
   return (
     <ProtectedRoute allow={["hod"]}>
       <DashboardLayout title="HOD Dashboard">
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section id="department" className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold">My Department</h2>
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <p><span className="font-medium">Name:</span> {department?.name || "Not assigned yet"}</p>
-              <p className="mt-1"><span className="font-medium">Code:</span> {department?.code || "N/A"}</p>
-              <p className="mt-2 text-xs text-slate-500">Department is auto-assigned by Admin when HOD is created.</p>
-            </div>
-          </section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <h2 className="text-lg font-semibold text-slate-900">Department Overview</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            All HOD operations are separated into dedicated sidebar tabs.
+          </p>
 
-          <form id="teacher" onSubmit={(e) => onSubmit(e, "/teachers", teacherForm, "Teacher assigned", () => { setTeacherForm({ name: "", email: "", password: "" }); loadTeachers(); })} className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold">Assign Teacher</h2>
-            <div className="mt-3 space-y-2">
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Teacher Name" value={teacherForm.name} onChange={(e) => setTeacherForm((p) => ({ ...p, name: e.target.value }))} required />
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="email" placeholder="Teacher Email" value={teacherForm.email} onChange={(e) => setTeacherForm((p) => ({ ...p, email: e.target.value }))} required />
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="password" placeholder="Password" value={teacherForm.password} onChange={(e) => setTeacherForm((p) => ({ ...p, password: e.target.value }))} required />
-            </div>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="submit">Assign</button>
-          </form>
-
-          <form
-            id="coordinator"
-            onSubmit={(e) =>
-              onSubmit(
-                e,
-                "/coordinators",
-                { ...coordinatorForm, departmentId: department?._id || user?.department || "" },
-                "Class coordinator assigned",
-                () => setCoordinatorForm({ name: "", email: "", password: "", year: "FY", division: "A" })
-              )
-            }
-            className="rounded-2xl border border-slate-200 bg-white p-4"
-          >
-            <h2 className="text-base font-semibold">Assign Class Coordinator</h2>
-            <div className="mt-3 space-y-2">
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Coordinator Name" value={coordinatorForm.name} onChange={(e) => setCoordinatorForm((p) => ({ ...p, name: e.target.value }))} required />
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="email" placeholder="Coordinator Email" value={coordinatorForm.email} onChange={(e) => setCoordinatorForm((p) => ({ ...p, email: e.target.value }))} required />
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="password" placeholder="Password" value={coordinatorForm.password} onChange={(e) => setCoordinatorForm((p) => ({ ...p, password: e.target.value }))} required />
-              <div className="grid grid-cols-2 gap-2">
-                <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={coordinatorForm.year} onChange={(e) => setCoordinatorForm((p) => ({ ...p, year: e.target.value as YearValue }))}>
-                  {years.map((year) => <option key={year} value={year}>{year}</option>)}
-                </select>
-                <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={coordinatorForm.division} onChange={(e) => setCoordinatorForm((p) => ({ ...p, division: e.target.value }))}>
-                  {divisions.map((division) => <option key={division} value={division}>{division}</option>)}
-                </select>
-              </div>
-            </div>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" type="submit" disabled={!department?._id && !user?.department}>Assign</button>
-          </form>
-
-          <form id="subject" onSubmit={(e) => onSubmit(e, "/subjects", subjectForm, "Subject created", () => setSubjectForm((p) => ({ ...p, name: "", code: "" })))} className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h2 className="text-base font-semibold">Create Subject</h2>
-            <div className="mt-3 space-y-2">
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Subject Name" value={subjectForm.name} onChange={(e) => setSubjectForm((p) => ({ ...p, name: e.target.value }))} required />
-              <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Subject Code" value={subjectForm.code} onChange={(e) => setSubjectForm((p) => ({ ...p, code: e.target.value }))} required />
-              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={subjectForm.teacherId} onChange={(e) => setSubjectForm((p) => ({ ...p, teacherId: e.target.value }))}>
-                {teachers.map((teacher) => <option key={teacher._id} value={teacher._id}>{teacher.name}</option>)}
-              </select>
-            </div>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="submit">Create Subject</button>
-          </form>
-        </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Link href="/hod/department" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+              <p className="text-xs uppercase tracking-wide text-slate-500">My Department</p>
+              <p className="mt-2 text-base font-bold text-slate-900">{department?.name || "Not Assigned"}</p>
+              <p className="mt-1 text-sm text-slate-500">{department?.code || "-"}</p>
+            </Link>
+            <Link href="/hod/teachers" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Teachers</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{teacherCount}</p>
+              <p className="mt-1 text-sm text-[#135ed8]">Open Teachers Tab</p>
+            </Link>
+            <Link href="/hod/coordinators" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Coordinators</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">Manage</p>
+              <p className="mt-1 text-sm text-[#135ed8]">Open Coordinators Tab</p>
+            </Link>
+            <Link href="/hod/subjects" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Subjects</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{subjectCount}</p>
+              <p className="mt-1 text-sm text-[#135ed8]">Open Subjects Tab</p>
+            </Link>
+          </div>
+        </section>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>
       </DashboardLayout>

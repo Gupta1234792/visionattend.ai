@@ -1,0 +1,8 @@
+numpy
+opencv-python
+python-dotenv
+requests
+pymongo
+mediapipe
+insightface
+onnxruntime

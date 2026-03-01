@@ -58,7 +58,7 @@ export default function AuthPage() {
   };
 
   return (
-    <section className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#1666dc] to-[#0f4cb4] p-4">
+    <section className="flex min-h-screen items-center justify  p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
         <h1 className="text-xl font-semibold text-slate-900">Welcome to VisionAttend</h1>
         <p className="mt-1 text-sm text-slate-600">Role-based ERP authentication</p>
