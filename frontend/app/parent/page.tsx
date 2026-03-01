@@ -42,6 +42,25 @@ export default function ParentPage() {
   return (
     <ProtectedRoute allow={["parent"]}>
       <DashboardLayout title="Parent Dashboard">
+        <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+          <h2 className="text-base font-semibold text-slate-900">Family Overview</h2>
+          <p className="mt-1 text-sm text-slate-600">Track linked students, class details, and attendance communication from one place.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Linked Students</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{children.length}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Portal</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">Parent View</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Status</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">Active</p>
+            </div>
+          </div>
+        </section>
+
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">My Children</h2>

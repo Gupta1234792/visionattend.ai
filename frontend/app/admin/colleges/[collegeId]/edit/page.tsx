@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -15,6 +15,7 @@ type CollegeForm = {
   description: string;
   website: string;
   logoUrl: string;
+  bannerUrl: string;
   latitude: number;
   longitude: number;
 };
@@ -32,10 +33,17 @@ export default function AdminCollegeEditPage() {
     description: "",
     website: "",
     logoUrl: "",
+    bannerUrl: "",
     latitude: 0,
     longitude: 0,
   });
   const [addressForm, setAddressForm] = useState<AddressParts>({ ...emptyAddressParts });
+  const [bannerPreview, setBannerPreview] = useState("");
+  const storedBanner =
+    typeof window !== "undefined" && collegeId
+      ? localStorage.getItem(`va_college_banner_${collegeId}`) || ""
+      : "";
+  const effectiveBanner = bannerPreview || form.bannerUrl || storedBanner;
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -50,6 +58,7 @@ export default function AdminCollegeEditPage() {
           description: c?.description || "",
           website: c?.website || "",
           logoUrl: c?.logoUrl || "",
+          bannerUrl: "",
           latitude: Number(c?.location?.latitude || 0),
           longitude: Number(c?.location?.longitude || 0),
         });
@@ -64,6 +73,24 @@ export default function AdminCollegeEditPage() {
     void loadProfile();
   }, [collegeId]);
 
+  const handleBannerFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setMessage("Please upload a valid image file for banner.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      setForm((prev) => ({ ...prev, bannerUrl: value }));
+      setBannerPreview(value);
+      setMessage("Banner preview updated. Save changes to apply.");
+    };
+    reader.readAsDataURL(file);
+  };
+
   const onSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!collegeId || saving) return;
@@ -75,7 +102,15 @@ export default function AdminCollegeEditPage() {
     setSaving(true);
     setMessage("Saving changes...");
     try {
-      await api.patch(`/colleges/${collegeId}`, { ...form, address: fullAddress });
+      const finalBanner = (effectiveBanner || "").trim();
+      await api.patch(`/colleges/${collegeId}`, { ...form, bannerUrl: finalBanner, address: fullAddress });
+      if (typeof window !== "undefined" && collegeId) {
+        if (finalBanner) {
+          localStorage.setItem(`va_college_banner_${collegeId}`, finalBanner);
+        } else {
+          localStorage.removeItem(`va_college_banner_${collegeId}`);
+        }
+      }
       router.push(`/admin/colleges/${collegeId}?updated=1`);
     } catch (error) {
       const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -99,6 +134,19 @@ export default function AdminCollegeEditPage() {
           </div>
 
           <form onSubmit={onSave} className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Profile Banner</p>
+              <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                {effectiveBanner ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={effectiveBanner} alt="College banner preview" className="h-40 w-full object-cover" />
+                ) : (
+                  <div className="flex h-40 items-center justify-center bg-gradient-to-r from-[#0a66c2] via-[#1d74d1] to-[#83b4e8] text-sm font-semibold text-white">
+                    Banner preview will appear here
+                  </div>
+                )}
+              </div>
+            </div>
             <input
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               placeholder="Name"
@@ -179,6 +227,26 @@ export default function AdminCollegeEditPage() {
               value={form.logoUrl}
               onChange={(e) => setForm((p) => ({ ...p, logoUrl: e.target.value }))}
             />
+            <input
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2"
+              placeholder="Banner Image URL (optional)"
+              value={effectiveBanner}
+              onChange={(e) => {
+                const value = e.target.value;
+                setForm((p) => ({ ...p, bannerUrl: value }));
+                setBannerPreview(value);
+              }}
+            />
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Or Upload Banner Image</label>
+              <input
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#135ed8] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+                type="file"
+                accept="image/*"
+                onChange={handleBannerFileUpload}
+              />
+              <p className="mt-1 text-xs text-slate-500">Banner image is stored on frontend profile view for now (no backend change).</p>
+            </div>
             <p className="text-xs text-slate-500 md:col-span-2">Preview: {composeAddress(addressForm) || "-"}</p>
 
             <div className="md:col-span-2">

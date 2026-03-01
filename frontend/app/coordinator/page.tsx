@@ -85,6 +85,25 @@ export default function CoordinatorPage() {
   return (
     <ProtectedRoute allow={["coordinator"]}>
       <DashboardLayout title="Coordinator Dashboard">
+        <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+          <h2 className="text-base font-semibold text-slate-900">Batch Control Center</h2>
+          <p className="mt-1 text-sm text-slate-600">Manage invites and monitor assigned classroom teachers in separate modules.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Department</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{user?.department || "-"}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Batch</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{year}-{division}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Teachers</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{classroomTeachers.length}</p>
+            </div>
+          </div>
+        </section>
+
         <div className="grid gap-4 xl:grid-cols-2">
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">Student Invite</h2>
