@@ -8,7 +8,15 @@ import { UserRole } from "@/src/services/auth";
 
 type Mode = "login" | "register";
 
-const roles: UserRole[] = ["admin", "hod", "teacher", "coordinator", "student", "parent"];
+const roles: UserRole[] = [
+  "admin",
+  "hod",
+  "teacher",
+  "coordinator",
+  "student",
+  "parent",
+];
+
 const registerRoles: UserRole[] = ["admin"];
 
 export default function AuthPage() {
@@ -16,7 +24,9 @@ export default function AuthPage() {
   const { login, register, loading } = useAuth();
 
   const [mode, setMode] = useState<Mode>("login");
-  const [message, setMessage] = useState("Login with your role account.");
+  const [message, setMessage] = useState(
+    "Secure access to Vision Attendance system."
+  );
 
   const [loginForm, setLoginForm] = useState({
     email: "",
@@ -54,6 +64,7 @@ export default function AuthPage() {
     e.preventDefault();
     const res = await register(registerForm);
     setMessage(res.message);
+
     if (res.ok) {
       setMode("login");
       setLoginForm((prev) => ({
@@ -65,24 +76,37 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fff] flex items-center justify-center p-10">
+    <div className="min-h-screen bg-white flex items-center justify-center px-4 sm:px-6 lg:px-8 py-12">
 
-      {/* MAIN CARD */}
-      <div className="w-[1150px] h-[650px] bg-[#f3f3f3] rounded-[32px] shadow-[0_30px_80px_rgba(0,0,0,0.25)] flex overflow-hidden">
+      <div className="w-full max-w-6xl bg-white  shadow-[0_25px_80px_rgba(0,0,0,0.07)] overflow-hidden grid grid-cols-1 lg:grid-cols-2">
 
-        {/* LEFT SIDE — 50% */}
-        <div className="w-1/2 h-full px-20 py-16 flex flex-col justify-center">
+        {/* RIGHT IMAGE (Top on Mobile) */}
+        <div className="relative h-64 sm:h-80 lg:h-auto">
+          <Image
+            src="/aayushkedidi.avif"
+            alt="Vision Attendance"
+            fill
+            priority
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent lg:hidden" />
+        </div>
 
-          <h1 className="text-[64px] font-extrabold text-[#111] leading-none tracking-tight">
-            Welcome
-          </h1>
+        {/* LEFT FORM SECTION */}
+        <div className="flex flex-col justify-center px-6 sm:px-12 lg:px-16 py-10">
 
-          <p className="text-sm text-gray-500 mt-3">
-            We are glad to see you back with us
-          </p>
+          {/* Header */}
+          <div>
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-black tracking-tight">
+              Vision Attendance
+            </h1>
+            <p className="mt-2 text-sm text-gray-500">
+              AI-powered biometric & role-based academic access.
+            </p>
+          </div>
 
           {/* Toggle */}
-          <div className="mt-8 relative flex bg-gray-200 rounded-full p-1 w-[240px]">
+          <div className="mt-8 relative flex bg-gray-100 rounded-full p-1 w-full max-w-xs">
             <div
               className={`absolute top-1 bottom-1 w-1/2 bg-black rounded-full transition-all duration-300 ${
                 mode === "register" ? "left-1/2" : "left-1"
@@ -90,7 +114,7 @@ export default function AuthPage() {
             />
             <button
               onClick={() => setMode("login")}
-              className={`relative z-10 w-1/2 text-sm py-2 font-medium ${
+              className={`relative z-10 w-1/2 text-sm py-2 font-medium transition ${
                 mode === "login" ? "text-white" : "text-gray-600"
               }`}
             >
@@ -98,7 +122,7 @@ export default function AuthPage() {
             </button>
             <button
               onClick={() => setMode("register")}
-              className={`relative z-10 w-1/2 text-sm py-2 font-medium ${
+              className={`relative z-10 w-1/2 text-sm py-2 font-medium transition ${
                 mode === "register" ? "text-white" : "text-gray-600"
               }`}
             >
@@ -110,26 +134,22 @@ export default function AuthPage() {
           {mode === "login" ? (
             <form onSubmit={onLogin} className="mt-8 space-y-5">
 
-              <input
+              <InputField
                 type="email"
-                placeholder="Email"
+                placeholder="Email Address"
                 value={loginForm.email}
-                onChange={(e) =>
-                  setLoginForm((p) => ({ ...p, email: e.target.value }))
+                onChange={(val) =>
+                  setLoginForm((p) => ({ ...p, email: val }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
-                required
               />
 
-              <input
+              <InputField
                 type="password"
                 placeholder="Password"
                 value={loginForm.password}
-                onChange={(e) =>
-                  setLoginForm((p) => ({ ...p, password: e.target.value }))
+                onChange={(val) =>
+                  setLoginForm((p) => ({ ...p, password: val }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
-                required
               />
 
               <select
@@ -140,66 +160,59 @@ export default function AuthPage() {
                     role: e.target.value as UserRole,
                   }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black transition"
               >
                 {roles.map((role) => (
                   <option key={role} value={role}>
-                    {role}
+                    {role.toUpperCase()}
                   </option>
                 ))}
               </select>
 
               <button
                 disabled={loading}
-                className="w-full bg-black text-white rounded-full py-4 text-sm font-semibold shadow-md hover:shadow-lg transition-all"
+                className="w-full bg-black text-white rounded-full py-4 text-sm font-semibold tracking-wide hover:opacity-90 transition"
                 type="submit"
               >
-                {loading ? "Processing..." : "NEXT"}
+                {loading ? "Authenticating..." : "Access Dashboard"}
               </button>
             </form>
           ) : (
             <form onSubmit={onRegister} className="mt-8 space-y-5">
 
-              <input
-                placeholder="Name"
+              <InputField
+                placeholder="Full Name"
                 value={registerForm.name}
-                onChange={(e) =>
-                  setRegisterForm((p) => ({ ...p, name: e.target.value }))
+                onChange={(val) =>
+                  setRegisterForm((p) => ({ ...p, name: val }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
-                required
               />
 
-              <input
+              <InputField
                 type="email"
-                placeholder="Email"
+                placeholder="Email Address"
                 value={registerForm.email}
-                onChange={(e) =>
-                  setRegisterForm((p) => ({ ...p, email: e.target.value }))
+                onChange={(val) =>
+                  setRegisterForm((p) => ({ ...p, email: val }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
-                required
               />
 
-              <input
+              <InputField
                 type="password"
                 placeholder="Password"
                 value={registerForm.password}
-                onChange={(e) =>
-                  setRegisterForm((p) => ({ ...p, password: e.target.value }))
+                onChange={(val) =>
+                  setRegisterForm((p) => ({ ...p, password: val }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
-                required
               />
 
-              <input
+              <InputField
                 type="password"
                 placeholder="Admin Bootstrap Key"
                 value={registerForm.bootstrapKey}
-                onChange={(e) =>
-                  setRegisterForm((p) => ({ ...p, bootstrapKey: e.target.value }))
+                onChange={(val) =>
+                  setRegisterForm((p) => ({ ...p, bootstrapKey: val }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
               />
 
               <select
@@ -210,42 +223,52 @@ export default function AuthPage() {
                     role: e.target.value as UserRole,
                   }))
                 }
-                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+                className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black transition"
               >
                 {registerRoles.map((role) => (
                   <option key={role} value={role}>
-                    {role}
+                    {role.toUpperCase()}
                   </option>
                 ))}
               </select>
 
               <button
                 disabled={loading}
-                className="w-full bg-black text-white rounded-full py-4 text-sm font-semibold shadow-md hover:shadow-lg transition-all"
+                className="w-full bg-black text-white rounded-full py-4 text-sm font-semibold tracking-wide hover:opacity-90 transition"
                 type="submit"
               >
-                {loading ? "Processing..." : "Register"}
+                {loading ? "Processing..." : "Create Admin Account"}
               </button>
             </form>
           )}
 
           <p className="mt-6 text-xs text-gray-500">{message}</p>
         </div>
-
-        {/* RIGHT SIDE — 50% FULL IMAGE */}
-        {/* RIGHT SIDE — 50% FULL IMAGE NO BG NO ROUND */}
-        <div className="w-1/2 h-full">
-          <Image
-            src="/student-image1.png"
-            alt="Student"
-            width={1000}
-            height={1300}
-            className="w-full h-full object-cover"
-            priority
-          />
-        </div>
-
       </div>
     </div>
+  );
+}
+
+/* Reusable Input Component */
+function InputField({
+  type = "text",
+  placeholder,
+  value,
+  onChange,
+}: {
+  type?: string;
+  placeholder: string;
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  return (
+    <input
+      type={type}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      required
+      className="w-full bg-white rounded-xl px-5 py-4 text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black transition"
+    />
   );
 }

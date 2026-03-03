@@ -1,5 +1,17 @@
 services:
 
+  mongo:
+    image: mongo:7
+    container_name: vision_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7
+    container_name: vision_redis
+
   opencv-ai:
     build: ./opencv-ai
     container_name: vision_ai
@@ -23,6 +35,8 @@ services:
     environment:
       - OPENCV_VERIFY_URL=http://opencv-ai:8000/verify
     depends_on:
+      - mongo
+      - redis
       - opencv-ai
 
   frontend:
@@ -34,3 +48,6 @@ services:
       - ./frontend/.env
     depends_on:
       - backend
+
+volumes:
+  mongo_data:
