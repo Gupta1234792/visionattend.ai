@@ -84,6 +84,11 @@ app.get("/health", (req, res) => {
   });
 });
 
+
+app.get("/", (req,res)=>{
+  res.status("Vision Attend Backend Is now Live🚀")
+})
+
 app.get("/health/opencv", async (req, res) => {
   const report = await checkOpenCvHealth();
   return res.status(report.ok ? 200 : 503).json({
