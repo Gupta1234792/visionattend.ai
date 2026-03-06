@@ -1,4 +1,5 @@
 const ChatMessage = require("../models/ChatMessage.model");
+const Notification = require("../models/Notification.model");
 const User = require("../models/User.model");
 const OnlineLecture = require("../models/OnlineLecture.model");
 const PTMSchedule = require("../models/PTMSchedule.model");
@@ -147,6 +148,43 @@ module.exports = (io) => {
           },
           time: saved.createdAt
         });
+
+        const batchId = roomId.startsWith("batch_") ? roomId.replace(/^batch_/, "") : "";
+        const [departmentId, year, division] = batchId.split("_");
+        if (departmentId && year && division) {
+          const students = await User.find({
+            role: "student",
+            isActive: true,
+            college: socket.collegeId,
+            department: departmentId,
+            year,
+            division
+          }).select("_id");
+
+          if (students.length) {
+            const now = new Date();
+            const docs = students.map((student) => ({
+              userId: student._id,
+              collegeId: socket.collegeId,
+              batchId,
+              type: "GENERAL",
+              title: "Lecture Announcement",
+              message: `${socket.user.name}: ${saved.message}`,
+              relatedId: saved._id,
+              status: "delivered",
+              deliveredAt: now
+            }));
+            await Notification.insertMany(docs);
+
+            collegeNamespace.to(roomId).emit("notification:new", {
+              batchId,
+              type: "GENERAL",
+              title: "Lecture Announcement",
+              message: `${socket.user.name}: ${saved.message}`,
+              createdAt: now.toISOString()
+            });
+          }
+        }
       } catch (err) {
         socket.emit("chat-error", {
           success: false,

@@ -7,8 +7,8 @@ type AuthContextType = {
   user: AuthUser | null;
   token: string;
   loading: boolean;
-  login: (payload: { email: string; password: string; role: UserRole }) => Promise<{ ok: boolean; message: string }>;
-  register: (payload: { name: string; email: string; password: string; role: UserRole; bootstrapKey?: string }) => Promise<{ ok: boolean; message: string }>;
+  login: (payload: { email: string; password: string; role: UserRole }) => Promise<{ ok: boolean; message: string; role?: UserRole }>;
+  register: (payload: { name: string; email: string; password: string; role: UserRole; bootstrapKey?: string }) => Promise<{ ok: boolean; message: string; emailSent?: boolean }>;
   logout: () => void;
 };
 
@@ -32,7 +32,12 @@ const readToken = () => (
 );
 const parseApiError = (error: unknown, fallback: string) => {
   const maybeMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-  return maybeMessage || fallback;
+  if (maybeMessage) return maybeMessage;
+  const rawMessage = (error as { message?: string })?.message || "";
+  if (rawMessage.toLowerCase().includes("network") || rawMessage.toLowerCase().includes("cors")) {
+    return "Network/CORS issue. Check backend URL, FRONTEND_URL/FRONTEND_URLS and restart servers.";
+  }
+  return fallback;
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -54,16 +59,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, message: res.message || "Login failed" };
       }
 
-      if (res.user.role !== payload.role) {
-        return { ok: false, message: `Selected role ${payload.role} does not match account role ${res.user.role}` };
-      }
-
       localStorage.setItem("va_token", res.token);
       localStorage.setItem("token", res.token);
       localStorage.setItem("va_user", JSON.stringify(res.user));
       setToken(res.token);
       setUser(res.user);
-      return { ok: true, message: "Login successful" };
+      return { ok: true, message: "Login successful", role: res.user.role };
     } catch (error) {
       return { ok: false, message: parseApiError(error, "Unable to login. Please check credentials.") };
     } finally {
@@ -75,7 +76,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const res = await registerRequest(payload);
-      return { ok: Boolean(res.success), message: res.message || (res.success ? "Registration successful" : "Registration failed") };
+      return {
+        ok: Boolean(res.success),
+        message: res.message || (res.success ? "Registration successful" : "Registration failed"),
+        emailSent: res.emailSent,
+      };
     } catch (error) {
       return { ok: false, message: parseApiError(error, "Unable to register") };
     } finally {

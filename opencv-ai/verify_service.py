@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import cv2
@@ -59,6 +60,10 @@ class VerifyHandler(BaseHTTPRequestHandler):
 
         user_id = str(payload.get("userId") or "").strip()
         subject_id = str(payload.get("subjectId") or "").strip()
+        college_id = str(payload.get("collegeId") or "").strip()
+        department_id = str(payload.get("departmentId") or "").strip()
+        year = str(payload.get("year") or "").strip()
+        division = str(payload.get("division") or "").strip()
         image_data = payload.get("image")
 
         if not user_id or not image_data:
@@ -88,8 +93,13 @@ class VerifyHandler(BaseHTTPRequestHandler):
             faces.insert_one({
                 "userId": user_id,
                 "subjectId": "GLOBAL",
+                "collegeId": college_id or None,
+                "departmentId": department_id or None,
+                "year": year or None,
+                "division": division or None,
                 "embedding": emb.tolist(),
-                "model": "arcface_buffalo_l"
+                "model": "arcface_buffalo_l",
+                "updatedAt": int(time.time())
             })
             return self._send(200, {
                 "success": True,

@@ -11,6 +11,8 @@ services:
   redis:
     image: redis:7
     container_name: vision_redis
+    ports:
+      - "6379:6379"
 
   opencv-ai:
     build: ./opencv-ai
@@ -21,9 +23,10 @@ services:
       - ./opencv-ai/.env
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
-      interval: 30s
+      interval: 20s
       timeout: 10s
-      retries: 3
+      retries: 15
+      start_period: 120s
 
   backend:
     build: ./backend
@@ -35,9 +38,12 @@ services:
     environment:
       - OPENCV_VERIFY_URL=http://opencv-ai:8000/verify
     depends_on:
-      - mongo
-      - redis
-      - opencv-ai
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+      opencv-ai:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -47,7 +53,8 @@ services:
     env_file:
       - ./frontend/.env
     depends_on:
-      - backend
+      backend:
+        condition: service_started
 
 volumes:
   mongo_data:

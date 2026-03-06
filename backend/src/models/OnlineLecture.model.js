@@ -13,11 +13,15 @@ const onlineLectureSchema = new mongoose.Schema(
     meetingLink: { type: String, required: true },
     status: {
       type: String,
-      enum: ["SCHEDULED", "LIVE", "ENDED"],
+      enum: ["SCHEDULED", "LIVE", "ENDED", "CANCELED"],
       default: "SCHEDULED",
       index: true
     },
+    purpose: { type: String, default: "" },
     recordingUrl: { type: String, default: null },
+    autoAttendanceStartedAt: { type: Date, default: null },
+    cancelReason: { type: String, default: null },
+    canceledByHolidayId: { type: mongoose.Schema.Types.ObjectId, ref: "BatchHoliday", default: null },
     startedAt: { type: Date, default: null },
     endedAt: { type: Date, default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }

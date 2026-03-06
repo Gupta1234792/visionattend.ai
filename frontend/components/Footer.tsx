@@ -24,10 +24,10 @@ export default function Footer() {
             Quick Links
           </h4>
           <ul className="mt-5 space-y-3 text-sm">
-            <li><Link href="#" className="hover:text-white">Features</Link></li>
-            <li><Link href="#" className="hover:text-white">Workflow</Link></li>
-            <li><Link href="#" className="hover:text-white">Roles</Link></li>
-            <li><Link href="#" className="hover:text-white">About Us</Link></li>
+            <li><Link href="/#features" className="hover:text-white">Features</Link></li>
+            <li><Link href="/#workflow" className="hover:text-white">Workflow</Link></li>
+            <li><Link href="/#roles" className="hover:text-white">Roles</Link></li>
+            <li><Link href="/#about" className="hover:text-white">About Us</Link></li>
           </ul>
         </div>
 
@@ -36,16 +36,16 @@ export default function Footer() {
           <h4 className="text-sm font-semibold uppercase tracking-widest text-gray-100">
             Access
           </h4>
-          <div className="mt-6 flex gap-4">
+          <div className="mt-6 flex flex-wrap gap-3">
             <Link
-              href="/login"
-              className="px-5 py-2 rounded-full border border-gray-400 text-sm hover:bg-white hover:text-gray-800 transition"
+              href="/auth"
+              className="px-4 py-2 rounded-full border border-gray-400 text-sm hover:bg-white hover:text-gray-800 transition sm:px-5"
             >
               Login
             </Link>
             <Link
-              href="/register"
-              className="px-5 py-2 rounded-full bg-white text-gray-800 text-sm font-medium hover:opacity-90 transition"
+              href="/auth"
+              className="px-4 py-2 rounded-full bg-white text-gray-800 text-sm font-medium hover:opacity-90 transition sm:px-5"
             >
               Register
             </Link>

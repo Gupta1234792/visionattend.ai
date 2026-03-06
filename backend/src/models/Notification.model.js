@@ -11,6 +11,7 @@ const notificationSchema = new mongoose.Schema(
         "LOW_ATTENDANCE",
         "PTM_SCHEDULED",
         "LECTURE_REMINDER",
+        "HOLIDAY_NOTICE",
         "SUSPICIOUS_ATTENDANCE",
         "PARENT_NOTIFICATION",
         "GENERAL"

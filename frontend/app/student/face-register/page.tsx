@@ -9,8 +9,10 @@ export default function StudentFaceRegisterPage() {
   const router = useRouter();
   const [message, setMessage] = useState("Register your face to continue.");
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [capturedImage, setCapturedImage] = useState("");
   const [waitingForConfirm, setWaitingForConfirm] = useState(false);
   const [statusTag, setStatusTag] = useState<"idle" | "camera" | "opencv" | "retry" | "success">("idle");
+  const allowBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -18,10 +20,13 @@ export default function StudentFaceRegisterPage() {
 const getCameraErrorMessage = (error: unknown) => {
   const name = (error as { name?: string })?.name || "";
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "Camera not detected. Please connect a webcam.";
+    return "Camera stream not available. On phone, use Capture Photo option.";
   }
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
     return "Camera permission denied. Allow camera access in browser settings.";
+  }
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    return "Live camera is blocked on HTTP mobile URL. Use Capture Photo or open app on HTTPS.";
   }
   return "Unable to access camera.";
 };
@@ -40,7 +45,14 @@ const getCameraErrorMessage = (error: unknown) => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "user" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -58,6 +70,19 @@ const getCameraErrorMessage = (error: unknown) => {
       streamRef.current = null;
     }
     setCameraOpen(false);
+  };
+
+  const captureFromFile = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      if (!value) return;
+      setCapturedImage(value);
+      setMessage("Photo captured from mobile camera. You can submit now.");
+      setStatusTag("idle");
+    };
+    reader.readAsDataURL(file);
   };
 
   const captureImage = () => {
@@ -81,15 +106,15 @@ const getCameraErrorMessage = (error: unknown) => {
         return;
       }
 
-      const image = captureImage();
+      const image = cameraOpen ? captureImage() : capturedImage;
       if (!image) {
-        showAlert("No live face frame detected. Open camera and try again.");
+        showAlert("No face image found. Open camera or use Capture Photo.");
         return;
       }
 
       const res = await api.post("/students/face-register", { image });
 
-      if (res.data?.faceRegistered) {
+      if (res.data?.success && res.data?.faceRegistered) {
         const rawUser = localStorage.getItem("va_user");
         if (rawUser) {
           const parsed = JSON.parse(rawUser);
@@ -98,6 +123,22 @@ const getCameraErrorMessage = (error: unknown) => {
         }
         setMessage("Face registration completed.");
         setStatusTag("success");
+        setCapturedImage("");
+        closeCamera();
+        router.push("/student");
+        return;
+      }
+
+      if (res.data?.success) {
+        const rawUser = localStorage.getItem("va_user");
+        if (rawUser) {
+          const parsed = JSON.parse(rawUser);
+          parsed.faceRegistered = true;
+          localStorage.setItem("va_user", JSON.stringify(parsed));
+        }
+        setMessage("Face registration completed.");
+        setStatusTag("success");
+        setCapturedImage("");
         closeCamera();
         router.push("/student");
         return;
@@ -116,6 +157,20 @@ const getCameraErrorMessage = (error: unknown) => {
       }
       showAlert(msg);
     }
+  };
+
+  const continueWithBypass = () => {
+    if (!allowBypass) return;
+    const rawUser = localStorage.getItem("va_user");
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      parsed.faceRegistered = true;
+      localStorage.setItem("va_user", JSON.stringify(parsed));
+    }
+    sessionStorage.setItem("va_dev_face_verified", "true");
+    localStorage.setItem("va_dev_face_verified", "true");
+    setMessage("Temporary bypass enabled. Please complete real face registration later.");
+    router.push("/student");
   };
 
   useEffect(() => {
@@ -161,12 +216,36 @@ const getCameraErrorMessage = (error: unknown) => {
           <div className="mt-3 flex flex-wrap gap-2">
             <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={openCamera}>Open Camera</button>
             <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={closeCamera}>Close Camera</button>
-            <button className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60" type="button" onClick={submitFace} disabled={!cameraOpen || waitingForConfirm}>
+            <label className="cursor-pointer rounded-lg border border-slate-300 px-3 py-2 text-sm">
+              Capture Photo
+              <input
+                type="file"
+                accept="image/*"
+                capture="user"
+                className="hidden"
+                onChange={(e) => captureFromFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            <button
+              className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              type="button"
+              onClick={submitFace}
+              disabled={(!cameraOpen && !capturedImage) || waitingForConfirm}
+            >
               {waitingForConfirm ? "Waiting for OpenCV..." : "Register Face"}
             </button>
+            {allowBypass ? (
+              <button className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700" type="button" onClick={continueWithBypass}>
+                Manual Access (Dev Mode)
+              </button>
+            ) : null}
           </div>
 
           {cameraOpen && <video ref={videoRef} autoPlay playsInline muted className="mt-3 w-full rounded-lg border border-slate-200" />}
+          {!cameraOpen && capturedImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={capturedImage} alt="Captured face preview" className="mt-3 w-full rounded-lg border border-slate-200 object-cover" />
+          ) : null}
           <canvas ref={canvasRef} className="hidden" />
 
           <div className="mt-4 rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{message}</div>

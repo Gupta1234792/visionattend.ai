@@ -58,13 +58,14 @@ const validateInviteToken = async (req, res) => {
 // ================= REGISTER STUDENT =================
 const registerStudent = async (req, res) => {
   try {
-    const { token, name, email, password, rollNo, parentEmail } = req.body;
+    const { token, inviteCode, name, email, password, rollNo, parentEmail } = req.body;
     const normalizedToken = String(token || "").trim().toLowerCase();
+    const normalizedCode = String(inviteCode || "").trim().toUpperCase();
 
-    if (!normalizedToken || !name || !email || !password || !rollNo) {
+    if (!normalizedToken || !normalizedCode || !name || !email || !password || !rollNo) {
       return res.status(400).json({
         success: false,
-        message: "Required fields are missing"
+        message: "Invite token, invite code and required fields are missing"
       });
     }
 
@@ -74,6 +75,12 @@ const registerStudent = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid or expired invite token"
+      });
+    }
+    if (!invite.inviteCode || String(invite.inviteCode).toUpperCase() !== normalizedCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid invite code for this invite link"
       });
     }
 
@@ -250,6 +257,10 @@ const registerStudentFace = async (req, res) => {
       },
       body: JSON.stringify({
         userId: String(student._id),
+        collegeId: student.college ? String(student.college) : "",
+        departmentId: student.department ? String(student.department) : "",
+        year: student.year || "",
+        division: student.division || "",
         image
       })
     });

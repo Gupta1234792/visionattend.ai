@@ -13,7 +13,11 @@ const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) ||
 const FACE_CONFIDENCE_THRESHOLD = 0.65;
 const LOCATION_GREEN_METERS = Number(process.env.LOCATION_GREEN_METERS) || 50;
 const LOCATION_YELLOW_METERS = Number(process.env.LOCATION_YELLOW_METERS) || 150;
+const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
+  process.env.DEV_FORCE_GREEN_ON_MANUAL_BYPASS || (process.env.NODE_ENV !== "production" ? "true" : "false")
+) === "true";
 const OPENCV_VERIFY_URL = process.env.OPENCV_VERIFY_URL || "";
+const ALLOW_STUDENT_MANUAL_BYPASS = String(process.env.ALLOW_STUDENT_MANUAL_BYPASS || "false") === "true";
 
 const getToday = () => new Date().toISOString().split("T")[0];
 
@@ -307,7 +311,7 @@ const getActiveSessionForStudent = async (req, res) => {
 
 const markAttendance = async (req, res) => {
   try {
-    const { sessionId, latitude, longitude } = req.body;
+    const { sessionId, latitude, longitude, manualBypass } = req.body;
 
     if (
       !sessionId ||
@@ -349,7 +353,10 @@ const markAttendance = async (req, res) => {
     }
 
     const studentProfile = await User.findById(req.user._id).select("faceRegisteredAt");
-    if (!studentProfile?.faceRegisteredAt) {
+    const bypassRequested = Boolean(manualBypass);
+    const bypassAllowed = ALLOW_STUDENT_MANUAL_BYPASS && bypassRequested;
+
+    if (!studentProfile?.faceRegisteredAt && !bypassAllowed) {
       return res.status(403).json({
         success: false,
         message: "Face registration is required before attendance marking"
@@ -405,6 +412,14 @@ const markAttendance = async (req, res) => {
     } else if (collegeDistance <= LOCATION_YELLOW_METERS) {
       status = "remote";
       locationFlag = "yellow";
+    }
+    if (
+      bypassAllowed &&
+      DEV_FORCE_GREEN_ON_MANUAL_BYPASS &&
+      collegeDistance <= LOCATION_YELLOW_METERS
+    ) {
+      status = "present";
+      locationFlag = "green";
     }
 
     const record = await AttendanceRecord.create({

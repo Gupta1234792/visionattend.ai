@@ -15,6 +15,7 @@ type RemoteStream = { socketId: string; stream: MediaStream };
 type ScheduledLecture = {
   _id: string;
   title: string;
+  purpose?: string;
   scheduledAt: string;
   durationMinutes: number;
   meetingLink?: string;
@@ -116,6 +117,7 @@ export default function TeacherPage() {
     scheduledAtLocal: "",
     durationMinutes: 60,
     subjectId: "",
+    purpose: "",
   });
 
 
@@ -485,6 +487,35 @@ export default function TeacherPage() {
 
   const getLocation = () =>
     new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+      const devBypassEnabled = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
+      const fallbackFromCollege = async () => {
+        try {
+          const res = await api.get("/colleges");
+          const firstCollege = (res.data?.colleges || [])[0];
+          const latitude = Number(firstCollege?.location?.latitude);
+          const longitude = Number(firstCollege?.location?.longitude);
+          if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+            setMessage("Live location blocked on this mobile URL. Using college location for dev test.");
+            resolve({ latitude, longitude });
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      };
+
+      if (!navigator.geolocation) {
+        if (devBypassEnabled) {
+          void fallbackFromCollege().then((ok) => {
+            if (!ok) reject(new Error("Location access denied"));
+          });
+          return;
+        }
+        reject(new Error("Location access denied"));
+        return;
+      }
+
       navigator.geolocation.getCurrentPosition(
         (position) => {
           resolve({
@@ -492,7 +523,13 @@ export default function TeacherPage() {
             longitude: position.coords.longitude,
           });
         },
-        () => reject(new Error("Location access denied")),
+        async () => {
+          if (devBypassEnabled) {
+            const ok = await fallbackFromCollege();
+            if (ok) return;
+          }
+          reject(new Error("Location access denied"));
+        },
         { enableHighAccuracy: true, timeout: 10000 }
       );
     });
@@ -565,6 +602,7 @@ export default function TeacherPage() {
         batchId,
         scheduledAt,
         durationMinutes: Number(lectureForm.durationMinutes),
+        purpose: lectureForm.purpose.trim(),
       });
 
       const created = res.data?.lecture;
@@ -580,12 +618,13 @@ export default function TeacherPage() {
             `Teacher: ${user?.name || "Teacher"}`,
             `Time: ${new Date(scheduledAt).toLocaleString()}`,
             `Duration: ${lectureForm.durationMinutes} min`,
+            `Purpose: ${lectureForm.purpose || "-"}`,
             `Join Link: ${meetingLink || "Will be shared"}`,
           ].join(" | "),
         });
       }
 
-      setLectureForm({ title: "", scheduledAtLocal: "", durationMinutes: 60, subjectId: lectureForm.subjectId });
+      setLectureForm({ title: "", scheduledAtLocal: "", durationMinutes: 60, subjectId: lectureForm.subjectId, purpose: "" });
       setMessage("Lecture scheduled and shared in classroom chat.");
       pushToast("Lecture scheduled and shared.", "success");
       void loadMyLectures();
@@ -695,6 +734,10 @@ export default function TeacherPage() {
     }
   };
   const getLectureStatus = (lecture: ScheduledLecture) => {
+    const backendStatus = String(lecture.status || "").toUpperCase();
+    if (backendStatus === "CANCELED") return "Canceled";
+    if (backendStatus === "LIVE") return "Live";
+    if (backendStatus === "ENDED") return "Ended";
     const now = Date.now();
     const start = new Date(lecture.scheduledAt).getTime();
     const end = start + Number(lecture.durationMinutes || 0) * 60 * 1000;
@@ -705,6 +748,7 @@ export default function TeacherPage() {
   const lectureStatusClass = (status: string) => {
     if (status === "Live") return "bg-red-100 text-red-700";
     if (status === "Upcoming") return "bg-amber-100 text-amber-700";
+    if (status === "Canceled") return "bg-rose-100 text-rose-700";
     return "bg-slate-100 text-slate-600";
   };
 
@@ -721,7 +765,29 @@ export default function TeacherPage() {
               </p>
             </section>
           ) : null}
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Total Students</p>
+                <p className="mt-1 text-3xl font-semibold text-slate-900">{snapshot.totalStudents}</p>
+              </article>
+              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Face Registered</p>
+                <p className="mt-1 text-3xl font-semibold text-slate-900">{snapshot.faceRegistered}</p>
+              </article>
+              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Scheduled Lectures</p>
+                <p className="mt-1 text-3xl font-semibold text-slate-900">{scheduledLectures.length}</p>
+              </article>
+              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Attendance Session</p>
+                <p className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${activeAttendanceSession ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-700"}`}>
+                  {activeAttendanceSession ? "LIVE" : "OFFLINE"}
+                </p>
+              </article>
+            </div>
+          </section>
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">My Subjects</h2>
             {subjects.length === 0 ? (
               <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
@@ -737,7 +803,7 @@ export default function TeacherPage() {
             </ul>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Today Classroom Snapshot</h2>
             <p className="mt-2 text-sm text-slate-600">{selectedSubjectName} | {year}-{division}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -767,7 +833,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Pending Actions</h2>
             <p className="mt-2 text-sm text-slate-600">Quick checklist for today.</p>
             <ul className="mt-3 space-y-2 text-sm text-slate-700">
@@ -778,7 +844,7 @@ export default function TeacherPage() {
             </ul>
           </section>
 
-          <section id="invite" className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section id="invite" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Virtual Classroom Invite</h2>
             <p className="mt-2 text-sm text-slate-600">Invite students by class year and division.</p>
             <p className="mt-1 text-xs text-emerald-700">Generated link/code stays reusable for long term and can be shared with multiple students.</p>
@@ -809,7 +875,7 @@ export default function TeacherPage() {
             ) : null}
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Class Coordinator (Highlighted)</h2>
             <p className="mt-2 text-sm text-slate-600">Current coordinators for {classroomBatchInfo?.year || year}-{classroomBatchInfo?.division || division}.</p>
             <div className="mt-3 space-y-2">
@@ -825,7 +891,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <h2 className="text-base font-semibold">Top 4 Teachers With Full Class Detail</h2>
             <p className="mt-2 text-sm text-slate-600">Department, class division and subject mapping summary.</p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -855,7 +921,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <h2 className="text-base font-semibold">Enrolled Students ({year}-{division})</h2>
             <p className="mt-2 text-sm text-slate-600">Student list is loaded dynamically from backend classroom data.</p>
             <div className="mt-3 overflow-x-auto">
@@ -897,7 +963,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section id="lecture-schedule" className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section id="lecture-schedule" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Schedule Live Lecture</h2>
             <p className="mt-2 text-sm text-slate-600">Create a Google Meet-style session and auto-share details to students in chat.</p>
             <div className="mt-3 space-y-2">
@@ -934,13 +1000,19 @@ export default function TeacherPage() {
                 value={lectureForm.durationMinutes}
                 onChange={(e) => setLectureForm((prev) => ({ ...prev, durationMinutes: Number(e.target.value) || 60 }))}
               />
+              <input
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Purpose (optional)"
+                value={lectureForm.purpose}
+                onChange={(e) => setLectureForm((prev) => ({ ...prev, purpose: e.target.value }))}
+              />
             </div>
             <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={scheduleLecture} disabled={subjects.length === 0 || (user?.role === "teacher" && guardrails?.canScheduleLecture === false)}>
               Schedule and Share
             </button>
           </section>
 
-          <section id="live-class" className="rounded-2xl border border-slate-200 bg-white p-4">
+          <section id="live-class" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">Realtime Audio/Video Class</h2>
               <span className={`rounded-full px-2 py-1 text-xs font-semibold ${liveClassActive ? "animate-pulse bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
@@ -977,7 +1049,7 @@ export default function TeacherPage() {
             <p className="mt-2 text-xs text-slate-500">Connected peers: {remoteStreams.length} | Socket: {socketId || "-"}</p>
           </section>
 
-          <section id="teacher-chat" className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section id="teacher-chat" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <h2 className="text-base font-semibold">Lecture Announcements</h2>
             <p className="mt-2 text-sm text-slate-600">Teachers can send lecture details. Students receive these messages on their dashboard.</p>
             <div className="mt-3 flex gap-2">
@@ -1003,7 +1075,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <h2 className="text-base font-semibold">My Scheduled Lectures</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-sm">
@@ -1013,6 +1085,7 @@ export default function TeacherPage() {
                     <th className="py-2">Subject</th>
                     <th className="py-2">Time</th>
                     <th className="py-2">Duration</th>
+                    <th className="py-2">Purpose</th>
                     <th className="py-2">Status</th>
                     <th className="py-2">Link</th>
                   </tr>
@@ -1026,6 +1099,7 @@ export default function TeacherPage() {
                       <td className="py-2">{lecture.subjectId?.name || "-"}</td>
                       <td className="py-2">{new Date(lecture.scheduledAt).toLocaleString()}</td>
                       <td className="py-2">{lecture.durationMinutes} min</td>
+                      <td className="py-2">{lecture.purpose || "-"}</td>
                       <td className="py-2">
                         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${lectureStatusClass(status)}`}>{status}</span>
                       </td>
@@ -1043,7 +1117,7 @@ export default function TeacherPage() {
                   })}
                   {scheduledLectures.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={6}>No scheduled lectures yet.</td>
+                      <td className="py-3 text-slate-500" colSpan={7}>No scheduled lectures yet.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -1051,7 +1125,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section id="attendance" className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section id="attendance" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">Start Offline Lecture Attendance (Once Per Day)</h2>
               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${activeAttendanceSession ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
@@ -1092,7 +1166,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <h2 className="text-base font-semibold">Live Attendance Stream (Today)</h2>
             <p className="mt-2 text-sm text-slate-600">Realtime-like rows from backend refresh. Present/Remote/Absent with geo flags.</p>
             <div className="mt-3 overflow-x-auto">
@@ -1132,7 +1206,7 @@ export default function TeacherPage() {
             </div>
           </section>
 
-          <section id="reports" className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-2">
+          <section id="reports" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">Reports (Traffic-Light)</h2>
               <div className="flex items-center gap-2">
@@ -1186,8 +1260,9 @@ export default function TeacherPage() {
           </section>
         </div>
 
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>
+        <div className="mt-4 rounded-2xl border border-white/70 bg-white/75 p-3 text-sm text-slate-700 shadow-[0_8px_25px_rgba(35,70,140,0.06)]">{message}</div>
       </DashboardLayout>
     </ProtectedRoute>
   );
 }
+

@@ -5,14 +5,33 @@ const Event = require("../models/Event.model");
 const Notification = require("../models/Notification.model");
 const Subject = require("../models/Subject.model");
 const User = require("../models/User.model");
+const BatchHoliday = require("../models/BatchHoliday.model");
 const { logAudit } = require("../utils/audit");
 
-const VIDEO_ROOM_BASE_URL = process.env.VIDEO_ROOM_BASE_URL || "https://visionattend.local/room";
+const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/+$/, "");
+const VIDEO_ROOM_BASE_URL = process.env.VIDEO_ROOM_BASE_URL || `${FRONTEND_URL}/room`;
 
 const buildMeeting = () => {
   const meetingRoomId = crypto.randomUUID();
   const meetingLink = `${VIDEO_ROOM_BASE_URL}/${meetingRoomId}`;
   return { meetingRoomId, meetingLink };
+};
+
+const resolveMeetingLink = (lecture) => {
+  const roomId = lecture?.meetingRoomId || "";
+  const fallback = roomId ? `${VIDEO_ROOM_BASE_URL}/${roomId}` : "";
+  const raw = String(lecture?.meetingLink || "").trim();
+  if (!raw) return fallback;
+
+  try {
+    const url = new URL(raw);
+    if (url.hostname === "visionattend.local") {
+      return fallback || raw;
+    }
+    return raw;
+  } catch {
+    return fallback || raw;
+  }
 };
 
 const parseBatch = (batchId) => {
@@ -29,11 +48,16 @@ const parseBatch = (batchId) => {
 const canManageLecture = (user, lecture) => {
   if (user.role === "admin") return true;
   if (lecture.collegeId.toString() !== user.college?.toString()) return false;
+  const batch = parseBatch(lecture.batchId);
   if (["teacher", "coordinator"].includes(user.role)) {
-    if (user.role === "teacher") {
+    if (user.role === "teacher" && lecture.status !== "LIVE") {
       return lecture.teacherId.toString() === user._id.toString();
     }
-    return lecture.createdBy.toString() === user._id.toString();
+    if (user.role === "coordinator" && lecture.status !== "LIVE") {
+      return lecture.createdBy.toString() === user._id.toString();
+    }
+    if (!batch || !user.department) return false;
+    return batch.department.toString() === user.department.toString();
   }
   if (user.role === "hod") {
     return true;
@@ -43,7 +67,7 @@ const canManageLecture = (user, lecture) => {
 
 const scheduleLecture = async (req, res) => {
   try {
-    const { title, subjectId, batchId, scheduledAt, durationMinutes, recordingUrl } = req.body;
+    const { title, subjectId, batchId, scheduledAt, durationMinutes, recordingUrl, purpose } = req.body;
 
     if (!title || !subjectId || !batchId || !scheduledAt || !durationMinutes) {
       return res.status(400).json({
@@ -72,6 +96,22 @@ const scheduleLecture = async (req, res) => {
       }
     }
 
+    const scheduleDate = new Date(scheduledAt);
+    const overlappingHoliday = await BatchHoliday.findOne({
+      collegeId: req.user.college,
+      batchId,
+      isActive: true,
+      fromDate: { $lte: scheduleDate },
+      toDate: { $gte: scheduleDate }
+    }).lean();
+
+    if (overlappingHoliday) {
+      return res.status(409).json({
+        success: false,
+        message: `Holiday active for selected batch: ${overlappingHoliday.reason}`
+      });
+    }
+
     const { meetingRoomId, meetingLink } = buildMeeting();
 
     const lecture = await OnlineLecture.create({
@@ -80,10 +120,11 @@ const scheduleLecture = async (req, res) => {
       subjectId,
       batchId,
       collegeId: req.user.college,
-      scheduledAt: new Date(scheduledAt),
+      scheduledAt: scheduleDate,
       durationMinutes: Number(durationMinutes),
       meetingRoomId,
       meetingLink,
+      purpose: String(purpose || "").trim(),
       recordingUrl: recordingUrl || null,
       createdBy: req.user._id
     });
@@ -116,7 +157,7 @@ const scheduleLecture = async (req, res) => {
           batchId,
           type: "LECTURE_REMINDER",
           title: "Lecture Scheduled",
-          message: `${title} is scheduled at ${lecture.scheduledAt.toISOString()}`,
+          message: `${title} is scheduled at ${lecture.scheduledAt.toISOString()}${lecture.purpose ? ` | Purpose: ${lecture.purpose}` : ""}`,
           relatedId: lecture._id,
           status: "scheduled",
           scheduledFor: lecture.scheduledAt
@@ -155,7 +196,12 @@ const listMyLectures = async (req, res) => {
       .populate("subjectId", "name code")
       .lean();
 
-    return res.json({ success: true, lectures });
+    const normalized = lectures.map((lecture) => ({
+      ...lecture,
+      meetingLink: resolveMeetingLink(lecture)
+    }));
+
+    return res.json({ success: true, lectures: normalized });
   } catch (error) {
     console.error("listMyLectures error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch lectures" });
@@ -187,7 +233,12 @@ const listBatchLectures = async (req, res) => {
       .populate("subjectId", "name code")
       .lean();
 
-    return res.json({ success: true, lectures });
+    const normalized = lectures.map((lecture) => ({
+      ...lecture,
+      meetingLink: resolveMeetingLink(lecture)
+    }));
+
+    return res.json({ success: true, lectures: normalized });
   } catch (error) {
     console.error("listBatchLectures error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch batch lectures" });
@@ -201,8 +252,16 @@ const updateLectureStatus = async (req, res, status) => {
       return res.status(404).json({ success: false, message: "Lecture not found" });
     }
 
-    if (!canManageLecture(req.user, lecture)) {
-      return res.status(403).json({ success: false, message: "Access denied" });
+    const canManage = canManageLecture(req.user, lecture);
+    if (!canManage) {
+      if (status === "LIVE" && ["teacher", "coordinator"].includes(req.user.role)) {
+        const batch = parseBatch(lecture.batchId);
+        if (!batch || !req.user.department || batch.department.toString() !== req.user.department.toString()) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      } else {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
     }
 
     lecture.status = status;
@@ -263,7 +322,7 @@ const joinLecture = async (req, res) => {
       success: true,
       message: "Lecture join recorded",
       attendance: record,
-      meetingLink: lecture.meetingLink
+      meetingLink: resolveMeetingLink(lecture)
     });
   } catch (error) {
     console.error("joinLecture error:", error);

@@ -62,57 +62,76 @@ export default function AdminPage() {
   return (
     <ProtectedRoute allow={["admin"]}>
       <DashboardLayout title="Admin Dashboard">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="text-lg font-semibold text-slate-900">Separate Tabs</h2>
+        <section className="rounded-3xl border border-white/70 bg-white/75 p-5 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Colleges</p>
+              <p className="mt-2 text-4xl font-semibold text-slate-900">{counts.colleges}</p>
+              <p className="mt-1 text-xs text-slate-500">Active campus units</p>
+            </article>
+            <article className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">HODs</p>
+              <p className="mt-2 text-4xl font-semibold text-slate-900">{counts.hods}</p>
+              <p className="mt-1 text-xs text-slate-500">Department leaders</p>
+            </article>
+            <article className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Teachers</p>
+              <p className="mt-2 text-4xl font-semibold text-slate-900">{counts.teachers}</p>
+              <p className="mt-1 text-xs text-slate-500">Teaching staff</p>
+            </article>
+            <article className="rounded-2xl border border-white/80 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Students</p>
+              <p className="mt-2 text-4xl font-semibold text-slate-900">{counts.students}</p>
+              <p className="mt-1 text-xs text-slate-500">Onboarded learners</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-3xl border border-white/70 bg-white/75 p-5 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
+          <h2 className="text-lg font-semibold text-slate-900">Admin Modules</h2>
           <p className="mt-1 text-sm text-slate-600">
             College and HOD creation are separated in dedicated tabs. Teacher and coordinator creation is handled by HOD.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Link href="/admin/colleges" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+            <Link href="/admin/colleges" className="rounded-2xl border border-white/80 bg-white/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-slate-500">Colleges</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{counts.colleges}</p>
-              <p className="mt-1 text-sm text-[#135ed8]">Open Colleges Tab</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">Open Colleges Tab</p>
             </Link>
-            <Link href="/admin/hods" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+            <Link href="/admin/hods" className="rounded-2xl border border-white/80 bg-white/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-slate-500">HODs</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{counts.hods}</p>
-              <p className="mt-1 text-sm text-[#135ed8]">Open HOD Tab</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">Open HOD Tab</p>
             </Link>
-            <Link href="/admin/users" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+            <Link href="/admin/users" className="rounded-2xl border border-white/80 bg-white/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-slate-500">Teachers</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{counts.teachers}</p>
-              <p className="mt-1 text-sm text-[#135ed8]">View Users</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">View Users</p>
             </Link>
-            <Link href="/admin/users" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+            <Link href="/admin/users" className="rounded-2xl border border-white/80 bg-white/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-slate-500">Students</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">{counts.students}</p>
-              <p className="mt-1 text-sm text-[#135ed8]">View Users</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">View Users</p>
             </Link>
-            <Link href="/admin/analytics" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+            <Link href="/admin/analytics" className="rounded-2xl border border-white/80 bg-white/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-slate-500">Analytics</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">Live</p>
-              <p className="mt-1 text-sm text-[#135ed8]">Open Analytics</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">Open Analytics</p>
             </Link>
-            <Link href="/admin/audit" className="rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+            <Link href="/admin/audit" className="rounded-2xl border border-white/80 bg-white/80 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-slate-500">Audit Trail</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">Track</p>
-              <p className="mt-1 text-sm text-[#135ed8]">Open Audit</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">Open Audit</p>
             </Link>
           </div>
         </section>
 
-        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
+        <section className="mt-4 rounded-3xl border border-white/70 bg-white/75 p-5 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
           <h2 className="text-lg font-semibold text-slate-900">Pending Actions</h2>
           <ul className="mt-3 space-y-2 text-sm text-slate-700">
             {activities.map((item) => (
-              <li key={item} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">{item}</li>
+              <li key={item} className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2">{item}</li>
             ))}
             {activities.length === 0 ? <li className="text-slate-500">No urgent admin action pending.</li> : null}
           </ul>
         </section>
 
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>
+        <div className="mt-4 rounded-2xl border border-white/70 bg-white/75 p-3 text-sm text-slate-700 shadow-[0_8px_25px_rgba(35,70,140,0.06)]">{message}</div>
       </DashboardLayout>
     </ProtectedRoute>
   );

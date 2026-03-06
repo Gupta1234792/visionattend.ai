@@ -42,7 +42,7 @@ export default function Workflow() {
             whileInView={{ height: "100%" }}
             viewport={{ once: true }}
             transition={{ duration: 1 }}
-            className="absolute left-1/2 top-0 -translate-x-1/2 w-[2px] bg-gray-200"
+            className="absolute left-1/2 top-0 hidden w-[2px] -translate-x-1/2 bg-gray-200 md:block"
           />
 
           <div className="space-y-24">
@@ -86,11 +86,12 @@ export default function Workflow() {
                   {/* Node */}
                   <div
                     className="
-                      absolute left-1/2 -translate-x-1/2
+                      absolute left-1/2 hidden -translate-x-1/2
                       w-10 h-10 rounded-full
                       bg-gray-700 text-white
                       flex items-center justify-center
                       font-semibold shadow-lg
+                      md:flex
                     "
                   >
                     {index + 1}

@@ -19,6 +19,7 @@ export type AuthResponse = {
   token?: string;
   user?: AuthUser;
   message?: string;
+  emailSent?: boolean;
 };
 
 export async function login(payload: { email: string; password: string }): Promise<AuthResponse> {
@@ -39,5 +40,15 @@ export async function register(payload: {
 
 export async function getStudentProfile() {
   const { data } = await api.get("/students/me");
+  return data;
+}
+
+export async function forgotPassword(payload: { email: string }): Promise<AuthResponse> {
+  const { data } = await publicApi.post<AuthResponse>("/auth/forgot-password", payload);
+  return data;
+}
+
+export async function resetPassword(payload: { token: string; newPassword: string }): Promise<AuthResponse> {
+  const { data } = await publicApi.post<AuthResponse>("/auth/reset-password", payload);
   return data;
 }

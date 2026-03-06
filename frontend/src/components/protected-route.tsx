@@ -15,6 +15,12 @@ export function ProtectedRoute({
   const router = useRouter();
   const pathname = usePathname();
   const { user, token, loading } = useAuth();
+  const devBypassEnabled = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
+  const devFaceBypassed =
+    typeof window !== "undefined" &&
+    devBypassEnabled &&
+    (sessionStorage.getItem("va_dev_face_verified") === "true" ||
+      localStorage.getItem("va_dev_face_verified") === "true");
 
   useEffect(() => {
     if (loading) return;
@@ -30,17 +36,19 @@ export function ProtectedRoute({
     const studentFacePending =
       user.role === "student" &&
       !user.faceRegistered &&
+      !devFaceBypassed &&
       pathname !== "/student/face-register" &&
       pathname !== "/student/register";
 
     if (studentFacePending) {
       router.replace("/student/face-register");
     }
-  }, [allow, token, user, loading, router, pathname]);
+  }, [allow, token, user, loading, router, pathname, devFaceBypassed]);
 
   const studentFacePending =
     user?.role === "student" &&
     !user.faceRegistered &&
+    !devFaceBypassed &&
     pathname !== "/student/face-register" &&
     pathname !== "/student/register";
 

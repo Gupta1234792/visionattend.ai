@@ -19,6 +19,30 @@ type CollegeProfile = {
   location?: { latitude?: number; longitude?: number };
 };
 
+const LOCATION_GREEN_METERS = 50;
+const LOCATION_YELLOW_METERS = 150;
+
+const getDistanceInMeters = (
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number
+) => {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadius = 6371000;
+
+  const dLat = toRadians(toLat - fromLat);
+  const dLng = toRadians(toLng - fromLng);
+  const lat1 = toRadians(fromLat);
+  const lat2 = toRadians(toLat);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadius * c;
+};
+
 export default function AdminCollegeProfilePage() {
   const params = useParams<{ collegeId: string }>();
   const searchParams = useSearchParams();
@@ -26,6 +50,8 @@ export default function AdminCollegeProfilePage() {
   const [message, setMessage] = useState("Loading college profile...");
   const [profile, setProfile] = useState<CollegeProfile | null>(null);
   const [bannerUrl, setBannerUrl] = useState("");
+  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number; accuracy: number } | null>(null);
+  const [distanceFromCollege, setDistanceFromCollege] = useState<number | null>(null);
 
   const loadProfile = async () => {
     if (!collegeId) return;
@@ -77,6 +103,52 @@ export default function AdminCollegeProfilePage() {
     const chunks = name.trim().split(" ").filter(Boolean);
     return (chunks[0]?.[0] || "C") + (chunks[1]?.[0] || "");
   }, [profile?.name]);
+
+  const detectCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setMessage("Geolocation is not supported in this browser.");
+      return;
+    }
+
+    setMessage("Detecting current location...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = Number(position.coords.latitude);
+        const longitude = Number(position.coords.longitude);
+        const accuracy = Number(position.coords.accuracy || 0);
+        setCurrentLocation({ latitude, longitude, accuracy });
+
+        const collegeLat = profile?.location?.latitude;
+        const collegeLng = profile?.location?.longitude;
+        if (typeof collegeLat === "number" && typeof collegeLng === "number") {
+          const distance = getDistanceInMeters(latitude, longitude, collegeLat, collegeLng);
+          setDistanceFromCollege(distance);
+          setMessage(`Current location detected: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+        } else {
+          setDistanceFromCollege(null);
+          setMessage("Current location detected, but college location is not configured.");
+        }
+      },
+      () => {
+        setMessage("Unable to detect location. Allow location permission and retry.");
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    );
+  };
+
+  const locationFlag = useMemo(() => {
+    if (typeof distanceFromCollege !== "number") return null;
+    if (distanceFromCollege <= LOCATION_GREEN_METERS) return "green";
+    if (distanceFromCollege <= LOCATION_YELLOW_METERS) return "yellow";
+    return "red";
+  }, [distanceFromCollege]);
+
+  const locationFlagClass = useMemo(() => {
+    if (locationFlag === "green") return "bg-green-100 text-green-700";
+    if (locationFlag === "yellow") return "bg-yellow-100 text-yellow-700";
+    if (locationFlag === "red") return "bg-red-100 text-red-700";
+    return "bg-slate-100 text-slate-700";
+  }, [locationFlag]);
 
   return (
     <ProtectedRoute allow={["admin"]}>
@@ -178,6 +250,32 @@ export default function AdminCollegeProfilePage() {
             </section>
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="text-base font-semibold text-slate-900">Location</h3>
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={detectCurrentLocation}
+                    className="rounded-lg bg-[#0a66c2] px-3 py-2 text-xs font-semibold text-white hover:bg-[#084f97]"
+                  >
+                    Detect Current Location
+                  </button>
+                  <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${locationFlagClass}`}>
+                    {locationFlag || "not checked"}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-slate-600">
+                  Green: within {LOCATION_GREEN_METERS}m, Yellow: within {LOCATION_YELLOW_METERS}m, Red: farther than {LOCATION_YELLOW_METERS}m.
+                </p>
+                <p className="mt-2 text-xs text-slate-700">
+                  Current: {currentLocation ? `${currentLocation.latitude.toFixed(6)}, ${currentLocation.longitude.toFixed(6)}` : "-"}
+                </p>
+                <p className="mt-1 text-xs text-slate-700">
+                  Accuracy: {currentLocation ? `${Math.round(currentLocation.accuracy)} m` : "-"}
+                </p>
+                <p className="mt-1 text-xs text-slate-700">
+                  Distance from college: {typeof distanceFromCollege === "number" ? `${Math.round(distanceFromCollege)} m` : "-"}
+                </p>
+              </div>
               <div className="mt-3 space-y-2 text-sm text-slate-700">
                 {parsedAddressLines.length > 0 ? (
                   parsedAddressLines.map((line, index) => (

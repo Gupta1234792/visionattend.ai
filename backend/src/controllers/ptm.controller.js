@@ -6,7 +6,8 @@ const Parent = require("../models/Parent.model");
 const User = require("../models/User.model");
 const sendEmail = require("../utils/sendEmail");
 
-const VIDEO_ROOM_BASE_URL = process.env.VIDEO_ROOM_BASE_URL || "https://visionattend.local/room";
+const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/+$/, "");
+const VIDEO_ROOM_BASE_URL = process.env.VIDEO_ROOM_BASE_URL || `${FRONTEND_URL}/room`;
 
 const buildMeeting = () => {
   const meetingRoomId = crypto.randomUUID();

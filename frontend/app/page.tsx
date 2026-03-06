@@ -12,17 +12,17 @@ const page = () => {
   return (
     <div>
       <Navbar />
-      <Hero />
-      <Core />
-      <RoleModulesPage />
-      <Workflow />
-      <Footer />
+      <section id="home"><Hero /></section>
+      <section id="features"><Core /></section>
+      <section id="roles"><RoleModulesPage /></section>
+      <section id="workflow"><Workflow /></section>
+      <section id="about"><Footer /></section>
+      <section id="contact" className="hidden" />
     </div>
   )
 }
 
 export default page 
-
 
 
 
