@@ -18,11 +18,11 @@ services:
     build: ./opencv-ai
     container_name: vision_ai
     ports:
-      - "8000:8000"
+      - "10000:10000"
     env_file:
       - ./opencv-ai/.env
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:10000/health')"]
       interval: 20s
       timeout: 10s
       retries: 15
@@ -36,7 +36,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - OPENCV_VERIFY_URL=http://opencv-ai:8000/verify
+      - OPENCV_VERIFY_URL=http://opencv-ai:10000/verify
     depends_on:
       mongo:
         condition: service_started

@@ -14,7 +14,7 @@ from utils.mongo import faces
 load_dotenv()
 
 HOST = os.getenv("OPENCV_VERIFY_HOST", "0.0.0.0")
-PORT = int(os.getenv("OPENCV_VERIFY_PORT", os.getenv("PORT", "8001")))
+PORT = int(os.getenv("OPENCV_VERIFY_PORT", os.getenv("PORT", "10000")))
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.65"))
 
 arc = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
