@@ -1,8 +1,8 @@
-numpy
-opencv-python
-python-dotenv
-requests
-pymongo
-mediapipe
-insightface
-onnxruntime
+numpy==1.26.4
+opencv-python-headless==4.8.1.78
+python-dotenv==1.0.1
+requests==2.31.0
+pymongo==4.6.3
+mediapipe==0.10.9
+insightface==0.7.3
+onnxruntime==1.16.3
