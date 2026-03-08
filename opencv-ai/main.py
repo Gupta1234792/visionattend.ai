@@ -1,22 +1,16 @@
+from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 import time
-from flask import Flask, request, jsonify
 from insightface.app import FaceAnalysis
 from utils.mongo import faces as faces_col
 
-
-# ================= CONFIG =================
+app = Flask(__name__)
 
 MATCH_THRESHOLD = 0.42
 
-# ==========================================
 
-
-app = Flask(__name__)
-
-
-# ---------- ArcFace Model ----------
+# ---------- ArcFace ----------
 
 arcface = FaceAnalysis(
     name="buffalo_l",
@@ -45,9 +39,6 @@ def find_match(embedding):
 
     users = list(faces_col.find())
 
-    if not users:
-        return None, 0
-
     best_user = None
     best_score = 0
 
@@ -70,55 +61,47 @@ def find_match(embedding):
     return None, best_score
 
 
-# ================= ROUTES =================
+# ---------- Test Route ----------
 
 @app.route("/")
 def home():
     return {"status": "VisionAttend AI running"}
 
 
+# ---------- Face Verify ----------
+
 @app.route("/verify", methods=["POST"])
 def verify():
 
     if "image" not in request.files:
-        return jsonify({"error": "No image provided"}), 400
+        return jsonify({"error": "No image uploaded"}), 400
 
     file = request.files["image"]
 
     img = np.frombuffer(file.read(), np.uint8)
     frame = cv2.imdecode(img, cv2.IMREAD_COLOR)
 
-    if frame is None:
-        return jsonify({"error": "Invalid image"}), 400
-
-
     faces = arcface.get(frame)
 
     if not faces:
-        return jsonify({"status": "no_face"})
+        return {"status": "no_face"}
 
     if len(faces) > 1:
-        return jsonify({"status": "multiple_faces"})
-
+        return {"status": "multiple_faces"}
 
     face = faces[0]
+
     emb = face.embedding
-
-
-    # ---------- MATCH ----------
 
     user, score = find_match(emb)
 
     if user:
 
-        return jsonify({
+        return {
             "status": "already_registered",
             "studentId": user["studentId"],
             "score": score
-        })
-
-
-    # ---------- REGISTER NEW ----------
+        }
 
     now = time.time()
 
@@ -127,18 +110,16 @@ def verify():
     faces_col.insert_one({
         "studentId": new_id,
         "embedding": emb.tolist(),
-        "model": "arcface_buffalo_l",
-        "dim": 512,
         "createdAt": now
     })
 
-    return jsonify({
-        "status": "registered_new",
+    return {
+        "status": "registered",
         "studentId": new_id
-    })
+    }
 
 
-# ================= RUN SERVER =================
+# ---------- Run Server ----------
 
 if __name__ == "__main__":
 
