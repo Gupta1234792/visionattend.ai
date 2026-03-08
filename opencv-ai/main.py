@@ -17,7 +17,8 @@ arcface = FaceAnalysis(
     providers=["CPUExecutionProvider"]
 )
 
-arcface.prepare(ctx_id=0, det_size=(640, 640))
+# CPU mode
+arcface.prepare(ctx_id=-1, det_size=(640, 640))
 
 
 # ---------- Cosine Similarity ----------
