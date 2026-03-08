@@ -4,8 +4,10 @@ python-dotenv==1.0.1
 requests==2.31.0
 pymongo==4.6.3
 
-onnxruntime==1.17.1
+# InsightFace stack
+onnxruntime==1.15.1
 insightface==0.7.3
 
+# API server
 flask==2.3.3
 gunicorn==21.2.0
