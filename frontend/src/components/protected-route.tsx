@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { UserRole } from "@/src/services/auth";
 import { useAuth } from "@/src/context/auth-context";
+import api from "@/src/services/api";
 
 export function ProtectedRoute({
   allow,
@@ -44,6 +45,32 @@ export function ProtectedRoute({
       router.replace("/student/face-register");
     }
   }, [allow, token, user, loading, router, pathname, devFaceBypassed]);
+
+  useEffect(() => {
+    if (loading || !token || !user || user.role !== "student") return;
+
+    const syncFaceStatus = async () => {
+      try {
+        const res = await api.get("/students/me");
+        const faceRegistered = Boolean(res.data?.student?.faceRegisteredAt);
+        if (faceRegistered === Boolean(user.faceRegistered)) return;
+
+        const rawUser = localStorage.getItem("va_user");
+        if (!rawUser) return;
+        const parsed = JSON.parse(rawUser) as typeof user;
+        parsed.faceRegistered = faceRegistered;
+        localStorage.setItem("va_user", JSON.stringify(parsed));
+
+        if (!faceRegistered && !devFaceBypassed && pathname !== "/student/face-register") {
+          router.replace("/student/face-register");
+        }
+      } catch {
+        // keep existing local session state if profile sync fails
+      }
+    };
+
+    void syncFaceStatus();
+  }, [loading, token, user, router, pathname, devFaceBypassed]);
 
   const studentFacePending =
     user?.role === "student" &&

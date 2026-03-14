@@ -14,7 +14,7 @@ const listUsers = async (req, res) => {
 
     const users = await User.find({
       ...baseQuery,
-      role: { $in: ["hod", "teacher", "student"] }
+      role: { $in: ["hod", "teacher", "student", "parent"] }
     })
       .select("name email role rollNo year division college department createdAt")
       .populate("college", "name code")
@@ -25,6 +25,7 @@ const listUsers = async (req, res) => {
     const hods = users.filter((u) => u.role === "hod");
     const teachers = users.filter((u) => u.role === "teacher");
     const students = users.filter((u) => u.role === "student");
+    const parents = users.filter((u) => u.role === "parent");
 
     const groupedStudents = {};
     students.forEach((student) => {
@@ -39,6 +40,7 @@ const listUsers = async (req, res) => {
       hods,
       teachers,
       students,
+      parents,
       groupedStudents
     });
   } catch (error) {

@@ -24,6 +24,9 @@ const holidayRoutes = require("./routes/holiday.routes");
 const parentRoutes = require("./routes/parent.routes");
 const assistantRoutes = require("./routes/assistant.routes");
 const adminRoutes = require("./routes/admin.routes");
+const announcementRoutes = require("./routes/announcement.routes");
+const timetableRoutes = require("./routes/timetable.routes");
+const webhookRoutes = require("./routes/webhook.routes");
 const { authRateLimit, inviteRateLimit, attendanceRateLimit } = require("./middlewares/rateLimit.middleware");
 const { checkOpenCvHealth } = require("./startup/opencv");
 
@@ -63,6 +66,7 @@ app.use("/api/coordinators", coordinatorRoutes);
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/student-invite", inviteRateLimit, studentInviteRoutes);
 app.use("/api/students", studentRoutes);
+app.use("/api/student", studentRoutes);
 app.use("/api/subjects", subjectRoutes);
 app.use("/api/attendance", attendanceRateLimit, attendanceRoutes);
 app.use("/api/reports", reportRoutes);
@@ -76,6 +80,10 @@ app.use("/api/holidays", holidayRoutes);
 app.use("/api/parents", parentRoutes);
 app.use("/api/assistant", assistantRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/announcements", announcementRoutes);
+app.use("/api/timetables", timetableRoutes);
+app.use("/api/timetable", timetableRoutes);
+app.use("/api/webhooks", webhookRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({
@@ -85,9 +93,12 @@ app.get("/health", (req, res) => {
 });
 
 
-app.get("/", (req,res)=>{
-  res.status("Vision Attend Backend Is now Live🚀")
-})
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Vision Attend Backend is live"
+  });
+});
 
 app.get("/health/opencv", async (req, res) => {
   const report = await checkOpenCvHealth();

@@ -1,6 +1,7 @@
 const User = require("../models/User.model");
 const StudentInvite = require("../models/StudentInvite.model");
 const { hashPassword } = require("../utils/password");
+const { triggerWebhookEvent } = require("../utils/webhooks");
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.7;
 const OPENCV_REGISTER_URL = process.env.OPENCV_REGISTER_URL ||
   (process.env.OPENCV_VERIFY_URL
@@ -283,6 +284,22 @@ const registerStudentFace = async (req, res) => {
 
     student.faceRegisteredAt = new Date();
     await student.save();
+
+    triggerWebhookEvent({
+      event: "student.face.registered",
+      collegeId: student.college,
+      payload: {
+        event: "student.face.registered",
+        studentId: String(student._id),
+        departmentId: student.department ? String(student.department) : "",
+        year: student.year || "",
+        division: student.division || "",
+        confidence: confidenceValue,
+        registeredAt: student.faceRegisteredAt?.toISOString?.() || new Date(student.faceRegisteredAt).toISOString()
+      }
+    }).catch((webhookError) => {
+      console.error("student.face.registered webhook error:", webhookError);
+    });
 
     return res.status(200).json({
       success: true,

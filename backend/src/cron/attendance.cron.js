@@ -1,7 +1,7 @@
 const cron = require("node-cron");
 const AttendanceSession = require("../models/AttendanceSession.model");
 
-const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 30;
+const ATTENDANCE_LIMIT_MINUTES = 10;
 
 cron.schedule("* * * * *", async () => {
   try {

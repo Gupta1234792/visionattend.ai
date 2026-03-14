@@ -9,13 +9,11 @@ import { forgotPassword, resetPassword, UserRole } from "@/src/services/auth";
 
 type Mode = "login" | "register" | "forgot" | "reset";
 
-type MailStatus =
-  | {
-      kind: "credentials" | "reset";
-      state: "sent" | "failed" | "accepted";
-      email: string;
-    }
-  | null;
+type MailStatus = {
+  kind: "credentials" | "reset";
+  state: "sent" | "failed" | "accepted";
+  email: string;
+} | null;
 
 const roles: UserRole[] = [
   "admin",
@@ -39,7 +37,7 @@ export default function AuthPage() {
 function AuthPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, register, loading } = useAuth();
+  const { login, register, loading, user, token, logout } = useAuth();
 
   const resetTokenFromQuery = searchParams.get("token") || "";
   const modeFromQuery = searchParams.get("mode");
@@ -59,7 +57,7 @@ function AuthPageInner() {
   const [message, setMessage] = useState(
     (queryMode || "login") === "forgot"
       ? "Enter your email to receive reset link."
-      : "Secure access to Vision Attendance system."
+      : "Secure access to Vision Attendance system.",
   );
   const [mailStatus, setMailStatus] = useState<MailStatus>(null);
   const [forgotLoading, setForgotLoading] = useState(false);
@@ -77,7 +75,7 @@ function AuthPageInner() {
     name: "",
     email: "",
     password: "",
-    role: "admin" as UserRole,
+    role: "parent" as UserRole,
     bootstrapKey: "",
   });
 
@@ -100,8 +98,10 @@ function AuthPageInner() {
 
   const mailStatusTone = useMemo(() => {
     if (!mailStatus) return "";
-    if (mailStatus.state === "sent") return "border-green-200 bg-green-50 text-green-800";
-    if (mailStatus.state === "failed") return "border-amber-200 bg-amber-50 text-amber-800";
+    if (mailStatus.state === "sent")
+      return "border-green-200 bg-green-50 text-green-800";
+    if (mailStatus.state === "failed")
+      return "border-amber-200 bg-amber-50 text-amber-800";
     return "border-slate-200 bg-slate-50 text-slate-700";
   }, [mailStatus]);
 
@@ -118,7 +118,7 @@ function AuthPageInner() {
     setMessage(
       nextMode === "forgot"
         ? "Enter your email to receive reset link."
-        : "Secure access to Vision Attendance system."
+        : "Secure access to Vision Attendance system.",
     );
     setMode(nextMode);
   };
@@ -126,6 +126,8 @@ function AuthPageInner() {
   async function onLogin(e: FormEvent) {
     e.preventDefault();
     setMailStatus(null);
+
+    // Validate role selection matches user's actual role
     const res = await login(loginForm);
     setMessage(res.message);
 
@@ -134,7 +136,27 @@ function AuthPageInner() {
       return;
     }
 
+    // Check if selected role matches user's actual role
+    if (res.role && loginForm.role !== res.role) {
+      const errorMsg = "Invalid role selected. Please login with correct role.";
+      setMessage(errorMsg);
+      pushToast(errorMsg, "error");
+      return;
+    }
+
     pushToast("Login successful.", "success");
+    const devBypassEnabled = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
+    const devFaceBypassed =
+      typeof window !== "undefined" &&
+      devBypassEnabled &&
+      (sessionStorage.getItem("va_dev_face_verified") === "true" ||
+        localStorage.getItem("va_dev_face_verified") === "true");
+
+    if (res.role === "student" && !res.user?.faceRegistered && !devFaceBypassed) {
+      router.push("/student/face-register");
+      return;
+    }
+
     router.push(`/${res.role || loginForm.role}`);
   }
 
@@ -154,7 +176,12 @@ function AuthPageInner() {
       state: res.emailSent ? "sent" : "failed",
       email: registerForm.email,
     });
-    pushToast(res.emailSent ? "Account created. Credentials email sent." : "Account created, but credentials email failed.", res.emailSent ? "success" : "info");
+    pushToast(
+      res.emailSent
+        ? "Account created. Credentials email sent."
+        : "Account created, but credentials email failed.",
+      res.emailSent ? "success" : "info",
+    );
     setMode("login");
   }
 
@@ -175,19 +202,24 @@ function AuthPageInner() {
       setCooldownSeconds(FORGOT_COOLDOWN_SECONDS);
       setMailStatus({
         kind: "reset",
-        state: res.emailSent === true ? "sent" : res.emailSent === false ? "failed" : "accepted",
+        state:
+          res.emailSent === true
+            ? "sent"
+            : res.emailSent === false
+              ? "failed"
+              : "accepted",
         email: forgotEmail,
       });
       pushToast(
         res.emailSent === false
           ? "Reset request accepted, but email delivery failed."
           : "Reset request submitted.",
-        res.emailSent === false ? "info" : "success"
+        res.emailSent === false ? "info" : "success",
       );
     } catch (error) {
       const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Failed to send reset link.";
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message || "Failed to send reset link.";
       setMessage(apiMessage);
       if (apiMessage.toLowerCase().includes("too many auth attempts")) {
         setCooldownSeconds(Math.max(cooldownSeconds, FORGOT_COOLDOWN_SECONDS));
@@ -216,14 +248,17 @@ function AuthPageInner() {
 
       setMessage(res.message || "Password updated.");
       if (res.success) {
-        pushToast("Password reset successful. Login with new password.", "success");
+        pushToast(
+          "Password reset successful. Login with new password.",
+          "success",
+        );
         router.replace("/auth?mode=login");
         setMode("login");
       }
     } catch (error) {
       const apiMessage =
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Failed to reset password.";
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message || "Failed to reset password.";
       setMessage(apiMessage);
       pushToast(apiMessage, "error");
     } finally {
@@ -235,7 +270,9 @@ function AuthPageInner() {
     <div className="flex min-h-screen items-center justify-center bg-white px-6">
       <ToastStack
         toasts={toasts}
-        onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
+        onDismiss={(id) =>
+          setToasts((current) => current.filter((toast) => toast.id !== id))
+        }
       />
 
       <div className="grid w-full max-w-6xl shadow-2xl lg:grid-cols-2">
@@ -270,7 +307,9 @@ function AuthPageInner() {
               type="button"
               onClick={() => openMode("register")}
               className={`rounded-full px-4 py-2 text-sm ${
-                activeMode === "register" ? "bg-black text-white" : "bg-gray-100"
+                activeMode === "register"
+                  ? "bg-black text-white"
+                  : "bg-gray-100"
               }`}
             >
               Register
@@ -288,9 +327,14 @@ function AuthPageInner() {
           </div>
 
           {mailStatus ? (
-            <div className={`mt-6 rounded-2xl border p-3 text-sm ${mailStatusTone}`}>
+            <div
+              className={`mt-6 rounded-2xl border p-3 text-sm ${mailStatusTone}`}
+            >
               <p className="font-semibold">
-                {mailStatus.kind === "credentials" ? "Credentials email" : "Reset email"} status
+                {mailStatus.kind === "credentials"
+                  ? "Credentials email"
+                  : "Reset email"}{" "}
+                status
               </p>
               <p className="mt-1">
                 {mailStatus.state === "sent"
@@ -299,6 +343,33 @@ function AuthPageInner() {
                     ? `Could not deliver to ${mailStatus.email}.`
                     : `Request accepted for ${mailStatus.email}. If the account exists, mail should arrive shortly.`}
               </p>
+            </div>
+          ) : null}
+
+          {token && user && activeMode !== "forgot" && activeMode !== "reset" ? (
+            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">
+                Already signed in as {user.name} ({user.role})
+              </p>
+              <p className="mt-1">
+                New login will replace the current session.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/${user.role}`)}
+                  className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold"
+                >
+                  Go to Dashboard
+                </button>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="rounded-full bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Logout First
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -353,6 +424,20 @@ function AuthPageInner() {
 
           {activeMode === "register" && (
             <form onSubmit={onRegister} className="mt-8 space-y-4">
+              <select
+                value={registerForm.role}
+                onChange={(e) =>
+                  setRegisterForm((p) => ({
+                    ...p,
+                    role: e.target.value as UserRole,
+                  }))
+                }
+                className="w-full rounded-xl border p-3"
+              >
+                <option value="parent">parent</option>
+                <option value="admin">admin</option>
+              </select>
+
               <InputField
                 placeholder="Full Name"
                 value={registerForm.name}
@@ -370,21 +455,35 @@ function AuthPageInner() {
                 type="password"
                 placeholder="Password"
                 value={registerForm.password}
-                onChange={(v) => setRegisterForm((p) => ({ ...p, password: v }))}
+                onChange={(v) =>
+                  setRegisterForm((p) => ({ ...p, password: v }))
+                }
               />
 
-              <InputField
-                placeholder="Admin Bootstrap Key"
-                value={registerForm.bootstrapKey}
-                onChange={(v) => setRegisterForm((p) => ({ ...p, bootstrapKey: v }))}
-              />
+              {registerForm.role === "admin" ? (
+                <InputField
+                  placeholder="Admin Bootstrap Key"
+                  value={registerForm.bootstrapKey}
+                  onChange={(v) =>
+                    setRegisterForm((p) => ({ ...p, bootstrapKey: v }))
+                  }
+                />
+              ) : (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                  Parent signup works only if this email is already added as a student&apos;s parent email.
+                </div>
+              )}
 
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full rounded-full bg-black py-3 text-white disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {loading ? "Creating account..." : "Create Admin"}
+                {loading
+                  ? "Creating account..."
+                  : registerForm.role === "admin"
+                    ? "Create Admin"
+                    : "Create Parent Account"}
               </button>
             </form>
           )}
@@ -411,12 +510,18 @@ function AuthPageInner() {
               </button>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                <p className="font-semibold text-slate-700">Reset request status</p>
-                <p className="mt-1">
-                  Cooldown: {cooldownSeconds > 0 ? `${cooldownSeconds}s remaining before resend.` : "Ready to send."}
+                <p className="font-semibold text-slate-700">
+                  Reset request status
                 </p>
                 <p className="mt-1">
-                  Rate limit feedback will appear here if too many reset requests are sent.
+                  Cooldown:{" "}
+                  {cooldownSeconds > 0
+                    ? `${cooldownSeconds}s remaining before resend.`
+                    : "Ready to send."}
+                </p>
+                <p className="mt-1">
+                  Rate limit feedback will appear here if too many reset
+                  requests are sent.
                 </p>
               </div>
 
@@ -436,14 +541,18 @@ function AuthPageInner() {
                 type="password"
                 placeholder="New Password"
                 value={resetForm.newPassword}
-                onChange={(v) => setResetForm((p) => ({ ...p, newPassword: v }))}
+                onChange={(v) =>
+                  setResetForm((p) => ({ ...p, newPassword: v }))
+                }
               />
 
               <InputField
                 type="password"
                 placeholder="Confirm Password"
                 value={resetForm.confirmPassword}
-                onChange={(v) => setResetForm((p) => ({ ...p, confirmPassword: v }))}
+                onChange={(v) =>
+                  setResetForm((p) => ({ ...p, confirmPassword: v }))
+                }
               />
 
               <button

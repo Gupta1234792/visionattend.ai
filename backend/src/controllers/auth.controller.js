@@ -1,56 +1,48 @@
-const User = require("../models/User.model");
 const crypto = require("crypto");
+const User = require("../models/User.model");
 const PasswordResetToken = require("../models/PasswordResetToken.model");
 const { hashPassword, comparePassword } = require("../utils/password");
 const { generateToken } = require("../utils/jwt");
 const { logAudit } = require("../utils/audit");
+const { getEligibleStudentsForParentEmail, normalizeEmail, syncParentLinksForUser } = require("../utils/parentLinks");
 const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const sendPasswordResetEmail = require("../utils/sendPasswordResetEmail");
 
-// ================= REGISTER =================
 const register = async (req, res) => {
   try {
     const { name, email, password, role, bootstrapKey } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedRole = String(role || "").trim().toLowerCase();
 
-    if (!name || !email || !password || !role) {
+    if (!name || !normalizedEmail || !password || !normalizedRole) {
       return res.status(400).json({
         success: false,
         message: "All fields are required"
       });
     }
 
-    if (role === "student") {
+    if (normalizedRole === "student") {
       return res.status(400).json({
         success: false,
         message: "Student registration is invite-only. Use class invite link or code."
       });
     }
 
-    if (role === "hod") {
+    if (normalizedRole === "hod") {
       return res.status(403).json({
         success: false,
         message: "HOD signup is disabled on public endpoint. Create HOD via admin panel."
       });
     }
 
-    if (role !== "admin") {
+    if (!["admin", "parent"].includes(normalizedRole)) {
       return res.status(403).json({
         success: false,
         message: "Public signup is restricted."
       });
     }
 
-    const existingAdminCount = await User.countDocuments({ role: "admin" });
-    const expectedBootstrapKey = process.env.ADMIN_BOOTSTRAP_KEY || "";
-    const shouldRequireKey = existingAdminCount > 0 || Boolean(expectedBootstrapKey);
-    if (shouldRequireKey && (!bootstrapKey || bootstrapKey !== expectedBootstrapKey)) {
-      return res.status(403).json({
-        success: false,
-        message: "Invalid admin bootstrap key"
-      });
-    }
-
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(409).json({
         success: false,
@@ -58,20 +50,68 @@ const register = async (req, res) => {
       });
     }
 
-    // ✅ HASH PASSWORD (THIS WAS MISSING)
-    const hashedPassword = await hashPassword(password);
+    let assignedCollege = null;
 
+    if (normalizedRole === "admin") {
+      const existingAdminCount = await User.countDocuments({ role: "admin" });
+      const expectedBootstrapKey = process.env.ADMIN_BOOTSTRAP_KEY || "";
+      const shouldRequireKey = existingAdminCount > 0 || Boolean(expectedBootstrapKey);
+      if (shouldRequireKey && (!bootstrapKey || bootstrapKey !== expectedBootstrapKey)) {
+        return res.status(403).json({
+          success: false,
+          message: "Invalid admin bootstrap key"
+        });
+      }
+    }
+
+    if (normalizedRole === "parent") {
+      const linkedStudents = await getEligibleStudentsForParentEmail(normalizedEmail);
+      if (!linkedStudents.length) {
+        return res.status(403).json({
+          success: false,
+          message: "Parent signup is allowed only if this email is already linked to a student."
+        });
+      }
+
+      const collegeIds = [
+        ...new Set(linkedStudents.map((student) => (student.college ? String(student.college) : "")).filter(Boolean))
+      ];
+
+      if (collegeIds.length > 1) {
+        return res.status(403).json({
+          success: false,
+          message: "This parent email is linked to students in multiple colleges. Ask admin to create the parent account."
+        });
+      }
+
+      assignedCollege = collegeIds[0] || null;
+    }
+
+    const hashedPassword = await hashPassword(password);
     const user = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       password: hashedPassword,
-      role
+      role: normalizedRole,
+      college: assignedCollege
     });
+
+    if (normalizedRole === "parent") {
+      const syncResult = await syncParentLinksForUser(user);
+      if (syncResult.error) {
+        await User.findByIdAndDelete(user._id);
+        return res.status(403).json({
+          success: false,
+          message: syncResult.error
+        });
+      }
+    }
+
     const emailSent = await sendCredentialsEmail({
       name,
-      email,
+      email: normalizedEmail,
       password,
-      role
+      role: normalizedRole
     });
 
     await logAudit({
@@ -117,10 +157,9 @@ const register = async (req, res) => {
   }
 };
 
-// ================= FORGOT PASSWORD =================
 const forgotPassword = async (req, res) => {
   try {
-    const email = String(req.body?.email || "").trim().toLowerCase();
+    const email = normalizeEmail(req.body?.email);
     if (!email) {
       return res.status(400).json({
         success: false,
@@ -130,7 +169,6 @@ const forgotPassword = async (req, res) => {
 
     const user = await User.findOne({ email, isActive: true });
 
-    // Do not reveal whether account exists.
     if (!user) {
       return res.status(200).json({
         success: true,
@@ -184,7 +222,6 @@ const forgotPassword = async (req, res) => {
   }
 };
 
-// ================= RESET PASSWORD =================
 const resetPassword = async (req, res) => {
   try {
     const token = String(req.body?.token || "").trim();
@@ -255,15 +292,16 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// ================= LOGIN =================
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    const role = String(req.body?.role || "").trim().toLowerCase();
 
-    if (!email || !password) {
+    if (!email || !password || !role) {
       return res.status(400).json({
         success: false,
-        message: "Email and password are required"
+        message: "Email, password and role are required"
       });
     }
 
@@ -272,17 +310,45 @@ const login = async (req, res) => {
     if (!user || !user.isActive) {
       return res.status(401).json({
         success: false,
-        message: "Invalid credentials"
+        message: role === "parent"
+          ? "Parent account not found. Register first using the linked parent email."
+          : "Invalid credentials"
       });
     }
 
-    const isMatch = await comparePassword(password, user.password);
+    const storedPassword = String(user.password || "");
+    let isMatch = false;
+
+    if (/^\$2[aby]\$\d{2}\$/.test(storedPassword)) {
+      isMatch = await comparePassword(password, storedPassword);
+    } else if (storedPassword && storedPassword === password) {
+      isMatch = true;
+      user.password = await hashPassword(password);
+      await user.save();
+    }
 
     if (!isMatch) {
       return res.status(401).json({
         success: false,
         message: "Invalid credentials"
       });
+    }
+
+    if (role !== user.role) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid role selected. Please login with correct role."
+      });
+    }
+
+    if (user.role === "parent") {
+      const syncResult = await syncParentLinksForUser(user);
+      if (syncResult.error) {
+        return res.status(403).json({
+          success: false,
+          message: syncResult.error
+        });
+      }
     }
 
     const token = generateToken({
@@ -303,6 +369,7 @@ const login = async (req, res) => {
       success: true,
       message: "Login successful",
       token,
+      role: user.role,
       user: {
         id: user._id,
         name: user.name,

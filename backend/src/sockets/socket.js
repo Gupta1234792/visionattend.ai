@@ -56,6 +56,8 @@ module.exports = (io) => {
   });
 
   collegeNamespace.on("connection", (socket) => {
+    socket.join(`user_${socket.user._id}`);
+
     socket.on("disconnecting", () => {
       try {
         for (const roomId of socket.rooms) {
@@ -191,6 +193,12 @@ module.exports = (io) => {
           message: "Failed to send message"
         });
       }
+    });
+
+    socket.on("join-direct-room", ({ otherUserId }) => {
+      if (!otherUserId || typeof otherUserId !== "string") return;
+      const roomId = `direct_${[String(socket.user._id), String(otherUserId)].sort().join("_")}`;
+      socket.join(roomId);
     });
 
     socket.on("lecture-started", async ({ lectureId }) => {

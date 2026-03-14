@@ -27,6 +27,27 @@ body {
   overflow-x: hidden;
 }
 
+.react-calendar-heatmap .color-empty {
+  fill: rgba(148, 163, 184, 0.18);
+}
+
+.react-calendar-heatmap .color-present {
+  fill: #22c55e;
+}
+
+.react-calendar-heatmap .color-late {
+  fill: #f59e0b;
+}
+
+.react-calendar-heatmap .color-absent {
+  fill: #ef4444;
+}
+
+.react-calendar-heatmap text {
+  fill: #64748b;
+  font-size: 10px;
+}
+
 *,
 *::before,
 *::after {

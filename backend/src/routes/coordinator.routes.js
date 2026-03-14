@@ -1,11 +1,21 @@
 const express = require("express");
-const router = express.Router();
 
 const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
-const { createCoordinator } = require("../controllers/coordinator.controller");
+const {
+  createCoordinator,
+  listCoordinators
+} = require("../controllers/coordinator.controller");
 
-// HOD → CREATE CLASS COORDINATOR
+const router = express.Router();
+
+router.get(
+  "/",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "coordinator"),
+  listCoordinators
+);
+
 router.post(
   "/",
   authMiddleware,

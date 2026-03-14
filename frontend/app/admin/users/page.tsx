@@ -9,7 +9,7 @@ type AdminUser = {
   _id: string;
   name: string;
   email: string;
-  role: "hod" | "teacher" | "student";
+  role: "hod" | "teacher" | "student" | "parent";
   year?: string;
   division?: string;
   department?: { name?: string; code?: string };
@@ -20,6 +20,7 @@ export default function AdminUsersPage() {
   const [hods, setHods] = useState<AdminUser[]>([]);
   const [teachers, setTeachers] = useState<AdminUser[]>([]);
   const [students, setStudents] = useState<AdminUser[]>([]);
+  const [parents, setParents] = useState<AdminUser[]>([]);
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -28,6 +29,7 @@ export default function AdminUsersPage() {
         setHods(usersRes.data.hods || []);
         setTeachers(usersRes.data.teachers || []);
         setStudents(usersRes.data.students || []);
+        setParents(usersRes.data.parents || []);
         setMessage("Users loaded.");
       } catch (error) {
         const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -43,7 +45,7 @@ export default function AdminUsersPage() {
       <DashboardLayout title="Users">
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <h2 className="text-base font-semibold text-slate-900">All Users By Role</h2>
-          <div className="mt-3 grid gap-4 md:grid-cols-3">
+          <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl border border-slate-200 p-3">
               <p className="text-sm font-semibold text-slate-900">HODs ({hods.length})</p>
               <ul className="mt-2 space-y-1 text-xs text-slate-700">
@@ -64,6 +66,13 @@ export default function AdminUsersPage() {
                 {students.slice(0, 20).map((u) => <li key={u._id}>{u.name} - {u.department?.code || "-"} {u.year || "-"}-{u.division || "-"}</li>)}
                 {students.length > 20 ? <li className="text-slate-500">+ {students.length - 20} more</li> : null}
                 {students.length === 0 ? <li className="text-slate-500">No student found.</li> : null}
+              </ul>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-sm font-semibold text-slate-900">Parents ({parents.length})</p>
+              <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                {parents.map((u) => <li key={u._id}>{u.name} - {u.email}</li>)}
+                {parents.length === 0 ? <li className="text-slate-500">No parent found.</li> : null}
               </ul>
             </div>
           </div>

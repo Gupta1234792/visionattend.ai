@@ -32,17 +32,15 @@ export default function NotificationCenterPage() {
     }
   };
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    const timer = setTimeout(() => void load(), 0);
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [filter]);
-  /* eslint-enable react-hooks/exhaustive-deps */
 
   const markRead = async (id: string) => {
     try {
       await api.patch(`/notifications/${id}/read`);
-      void load();
+      await load();
     } catch {
       setMessage("Failed to mark notification.");
     }
@@ -51,7 +49,7 @@ export default function NotificationCenterPage() {
   const markAllRead = async () => {
     try {
       await api.patch("/notifications/read-all");
-      void load();
+      await load();
     } catch {
       setMessage("Failed to mark all as read.");
     }
@@ -60,39 +58,104 @@ export default function NotificationCenterPage() {
   return (
     <ProtectedRoute allow={["admin", "hod", "teacher", "coordinator", "student", "parent"]}>
       <DashboardLayout title="Notification Center">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex gap-2">
-              <button type="button" className={`rounded-lg border px-3 py-1.5 text-xs ${filter === "all" ? "bg-slate-900 text-white" : "border-slate-300"}`} onClick={() => setFilter("all")}>All</button>
-              <button type="button" className={`rounded-lg border px-3 py-1.5 text-xs ${filter === "unread" ? "bg-slate-900 text-white" : "border-slate-300"}`} onClick={() => setFilter("unread")}>Unread</button>
-              <button type="button" className={`rounded-lg border px-3 py-1.5 text-xs ${filter === "read" ? "bg-slate-900 text-white" : "border-slate-300"}`} onClick={() => setFilter("read")}>Read</button>
+        <section className="rounded-[1.8rem] border border-white/70 bg-white/80 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Notifications</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                WhatsApp-style unread feed for lecture, holiday, and system updates.
+              </p>
             </div>
-            <button type="button" onClick={() => void markAllRead()} className="rounded-lg bg-[#135ed8] px-3 py-1.5 text-xs font-semibold text-white">Mark All Read</button>
+            <button
+              type="button"
+              onClick={() => void markAllRead()}
+              className="rounded-full bg-[#25d366] px-4 py-2 text-sm font-semibold text-white"
+            >
+              Mark All Read
+            </button>
           </div>
 
-          <div className="mt-3 space-y-2">
+          <div className="mt-4 flex flex-wrap gap-2">
+            {(["all", "unread", "read"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setFilter(value)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
+                  filter === value
+                    ? "border-[#128c7e] bg-[#dff7ea] text-[#128c7e]"
+                    : "border-slate-200 bg-white text-slate-600"
+                }`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 space-y-3">
             {items.map((item) => (
-              <article key={item._id} className="rounded-lg border border-slate-200 p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-slate-800">{item.title}</p>
+              <article
+                key={item._id}
+                className={`rounded-[1.4rem] border px-4 py-4 shadow-sm ${
+                  item.isRead
+                    ? "border-slate-200 bg-white"
+                    : "border-[#b7ebd0] bg-[#ecfff4]"
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">
+                      {item.type}
+                    </p>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${item.isRead ? "bg-slate-200 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>{item.isRead ? "Read" : "Unread"}</span>
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700 uppercase">{item.status || "delivered"}</span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        item.isRead
+                          ? "bg-slate-100 text-slate-600"
+                          : "bg-[#25d366]/15 text-[#128c7e]"
+                      }`}
+                    >
+                      {item.isRead ? "Read" : "Unread"}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase text-slate-600">
+                      {item.status || "delivered"}
+                    </span>
                   </div>
                 </div>
-                <p className="mt-1 text-slate-700">{item.message}</p>
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} | {item.type}</p>
+
+                <p className="mt-3 text-sm leading-6 text-slate-700">
+                  {item.message}
+                </p>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-slate-500">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </p>
                   {!item.isRead ? (
-                    <button type="button" onClick={() => void markRead(item._id)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">Mark Read</button>
+                    <button
+                      type="button"
+                      onClick={() => void markRead(item._id)}
+                      className="rounded-full border border-[#128c7e] bg-white px-3 py-1.5 text-xs font-semibold text-[#128c7e]"
+                    >
+                      Mark Read
+                    </button>
                   ) : null}
                 </div>
               </article>
             ))}
-            {items.length === 0 ? <p className="text-sm text-slate-500">No notifications found.</p> : null}
+            {items.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                No notifications found for this filter.
+              </div>
+            ) : null}
           </div>
         </section>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>
+
+        <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-3 text-sm text-slate-600">
+          {message}
+        </div>
       </DashboardLayout>
     </ProtectedRoute>
   );

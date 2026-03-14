@@ -112,6 +112,43 @@ const createCoordinator = async (req, res) => {
   }
 };
 
+const listCoordinators = async (req, res) => {
+  try {
+    const query = {
+      role: "coordinator",
+      isActive: true
+    };
+
+    if (req.user.role === "admin") {
+      if (req.query.departmentId) {
+        query.department = req.query.departmentId;
+      }
+      if (req.query.collegeId) {
+        query.college = req.query.collegeId;
+      }
+    } else if (req.user.department) {
+      query.department = req.user.department;
+      query.college = req.user.college;
+    }
+
+    const coordinators = await User.find(query)
+      .select("name email department year division")
+      .sort({ year: 1, division: 1, name: 1 });
+
+    return res.status(200).json({
+      success: true,
+      coordinators
+    });
+  } catch (error) {
+    console.error("List coordinator error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch coordinators"
+    });
+  }
+};
+
 module.exports = {
-  createCoordinator
+  createCoordinator,
+  listCoordinators
 };

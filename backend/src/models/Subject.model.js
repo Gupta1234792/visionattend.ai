@@ -26,6 +26,12 @@ const subjectSchema = new mongoose.Schema(
       required: true
     },
 
+    coordinator: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+
     isActive: {
       type: Boolean,
       default: true

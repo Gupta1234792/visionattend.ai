@@ -7,19 +7,45 @@ const chatMessageSchema = new mongoose.Schema(
     sender: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      default: null
     },
 
     senderRole: {
       type: String,
-      enum: ["teacher", "coordinator"],
+      enum: ["admin", "hod", "teacher", "coordinator", "student", "parent", "system"],
       required: true
     },
 
-    message: { type: String, required: true }
+    receiver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+
+    message: { type: String, required: true },
+
+    seen: {
+      type: Boolean,
+      default: false
+    },
+
+    delivered: {
+      type: Boolean,
+      default: false
+    },
+
+    messageType: {
+      type: String,
+      enum: ["text", "system"],
+      default: "text"
+    }
   },
   { timestamps: true }
 );
+
+chatMessageSchema.index({ roomId: 1, createdAt: 1 });
+chatMessageSchema.index({ sender: 1 });
+chatMessageSchema.index({ receiver: 1 });
 
 module.exports =
   mongoose.models.ChatMessage ||

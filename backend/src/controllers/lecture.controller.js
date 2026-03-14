@@ -7,6 +7,8 @@ const Subject = require("../models/Subject.model");
 const User = require("../models/User.model");
 const BatchHoliday = require("../models/BatchHoliday.model");
 const { logAudit } = require("../utils/audit");
+const { emitToCollegeRoom } = require("../sockets/gateway");
+const { triggerWebhookEvent } = require("../utils/webhooks");
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/+$/, "");
 const VIDEO_ROOM_BASE_URL = process.env.VIDEO_ROOM_BASE_URL || `${FRONTEND_URL}/room`;
@@ -175,6 +177,24 @@ const scheduleLecture = async (req, res) => {
       metadata: { subjectId: String(subjectId), batchId }
     });
 
+    triggerWebhookEvent({
+      event: "lecture.scheduled",
+      collegeId: req.user.college,
+      payload: {
+        event: "lecture.scheduled",
+        lectureId: String(lecture._id),
+        title: lecture.title,
+        batchId: lecture.batchId,
+        subjectId: String(lecture.subjectId),
+        teacherId: String(lecture.teacherId),
+        scheduledAt: lecture.scheduledAt?.toISOString?.() || new Date(lecture.scheduledAt).toISOString(),
+        durationMinutes: lecture.durationMinutes,
+        meetingRoomId: lecture.meetingRoomId
+      }
+    }).catch((webhookError) => {
+      console.error("lecture.scheduled webhook error:", webhookError);
+    });
+
     return res.status(201).json({ success: true, lecture });
   } catch (error) {
     console.error("scheduleLecture error:", error);
@@ -270,6 +290,52 @@ const updateLectureStatus = async (req, res, status) => {
 
     await lecture.save();
 
+    if (status === "LIVE") {
+      const batch = parseBatch(lecture.batchId);
+      if (batch) {
+        const students = await User.find({
+          role: "student",
+          college: lecture.collegeId,
+          department: batch.department,
+          year: batch.year,
+          division: batch.division,
+          isActive: true
+        }).select("_id");
+
+        if (students.length) {
+          const now = new Date();
+          await Notification.insertMany(
+            students.map((student) => ({
+              userId: student._id,
+              collegeId: lecture.collegeId,
+              batchId: lecture.batchId,
+              type: "GENERAL",
+              title: "Teacher started live lecture",
+              message: `${lecture.title} is live now. Join immediately.`,
+              relatedId: lecture._id,
+              status: "delivered",
+              deliveredAt: now
+            }))
+          );
+        }
+      }
+    }
+
+    emitToCollegeRoom(
+      String(lecture.collegeId || ""),
+      `batch_${lecture.batchId}`,
+      status === "LIVE" ? "LECTURE_STARTED" : "LECTURE_ENDED",
+      {
+        lectureId: String(lecture._id),
+        batchId: lecture.batchId,
+        meetingRoomId: lecture.meetingRoomId,
+        meetingLink: resolveMeetingLink(lecture),
+        status,
+        startedAt: lecture.startedAt,
+        endedAt: lecture.endedAt
+      }
+    );
+
     await logAudit({
       actor: req.user,
       module: "lecture",
@@ -277,6 +343,24 @@ const updateLectureStatus = async (req, res, status) => {
       entityType: "OnlineLecture",
       entityId: lecture._id,
       metadata: { batchId: lecture.batchId }
+    });
+
+    triggerWebhookEvent({
+      event: status === "LIVE" ? "lecture.live.started" : "lecture.live.ended",
+      collegeId: lecture.collegeId,
+      payload: {
+        event: status === "LIVE" ? "lecture.live.started" : "lecture.live.ended",
+        lectureId: String(lecture._id),
+        title: lecture.title,
+        batchId: lecture.batchId,
+        meetingRoomId: lecture.meetingRoomId,
+        meetingLink: resolveMeetingLink(lecture),
+        status,
+        startedAt: lecture.startedAt ? new Date(lecture.startedAt).toISOString() : null,
+        endedAt: lecture.endedAt ? new Date(lecture.endedAt).toISOString() : null
+      }
+    }).catch((webhookError) => {
+      console.error("lecture.status webhook error:", webhookError);
     });
 
     return res.json({ success: true, lecture });

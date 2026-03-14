@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
+import {
+  AttendanceGeoMap,
+  type AttendanceGeoPoint,
+} from "@/src/components/AttendanceGeoMap";
 
 type TrendRow = {
   subjectName?: string;
@@ -37,6 +41,7 @@ export default function AdminAnalyticsPage() {
   const [divisionTrends, setDivisionTrends] = useState<TrendRow[]>([]);
   const [atRisk, setAtRisk] = useState<RiskRow[]>([]);
   const [coordinatorMetrics, setCoordinatorMetrics] = useState<CoordinatorMetric[]>([]);
+  const [geoActivity, setGeoActivity] = useState<AttendanceGeoPoint[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -49,6 +54,7 @@ export default function AdminAnalyticsPage() {
           setDivisionTrends(res.data?.trends?.divisions || []);
           setAtRisk(res.data?.alerts?.atRiskStudents || []);
           setCoordinatorMetrics(res.data?.coordinatorMetrics || []);
+          setGeoActivity(res.data?.geoActivity || []);
           setMessage("Attendance analytics loaded.");
         } catch (error) {
           const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -152,6 +158,14 @@ export default function AdminAnalyticsPage() {
               </table>
             </div>
           </section>
+
+          <div className="xl:col-span-2">
+            <AttendanceGeoMap
+              points={geoActivity}
+              title="Geo-Map Attendance View"
+              description="Recent attendance marks clustered by nearby coordinates so admin/HOD can see who marked from where."
+            />
+          </div>
         </div>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</div>

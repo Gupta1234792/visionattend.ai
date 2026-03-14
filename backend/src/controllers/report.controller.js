@@ -170,13 +170,20 @@ exports.studentDailyReport = async (req, res) => {
 
     const records = sessions.map((session) => {
       const matched = marksBySession.get(String(session._id));
+      const isPendingToday =
+        !matched &&
+        session.date === new Date().toISOString().split("T")[0] &&
+        session.isActive &&
+        session.endTime &&
+        new Date(session.endTime).getTime() > Date.now();
+
       return {
         sessionId: session._id,
         date: session.date,
         subject: session.subject?.name || "-",
         subjectCode: session.subject?.code || "-",
-        status: matched?.status || "absent",
-        locationFlag: matched?.locationFlag || "red",
+        status: matched?.status || (isPendingToday ? "pending" : "absent"),
+        locationFlag: matched?.locationFlag || (isPendingToday ? null : "red"),
         distanceMeters: matched?.distanceMeters ?? null,
         gpsDistance: matched?.gpsDistance ?? null,
         markedAt: matched?.markedAt || null

@@ -6,34 +6,52 @@ import { ProtectedRoute } from "@/src/components/protected-route";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
 
 type Teacher = { _id: string; name: string; email: string };
+type Coordinator = {
+  _id: string;
+  name: string;
+  email: string;
+  year?: string;
+  division?: string;
+};
 type Subject = {
   _id: string;
   name: string;
   code: string;
   teacher?: { name?: string; email?: string };
+  coordinator?: { name?: string; email?: string; year?: string; division?: string };
   department?: { name?: string; code?: string };
 };
 
 export default function HodSubjectsPage() {
   const [message, setMessage] = useState("Subject workflow ready.");
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [subjectForm, setSubjectForm] = useState({ name: "", code: "", teacherId: "" });
+  const [subjectForm, setSubjectForm] = useState({
+    name: "",
+    code: "",
+    teacherId: "",
+    coordinatorId: ""
+  });
 
   const loadData = async () => {
     try {
-      const [teacherRes, subjectRes] = await Promise.all([
+      const [teacherRes, coordinatorRes, subjectRes] = await Promise.all([
         api.get("/teachers"),
+        api.get("/coordinators"),
         api.get("/subjects/mine"),
       ]);
       const teacherList = teacherRes.data?.teachers || [];
+      const coordinatorList = coordinatorRes.data?.coordinators || [];
       const subjectList = subjectRes.data?.subjects || [];
 
       setTeachers(teacherList);
+      setCoordinators(coordinatorList);
       setSubjects(subjectList);
       setSubjectForm((prev) => ({
         ...prev,
         teacherId: prev.teacherId || teacherList[0]?._id || "",
+        coordinatorId: prev.coordinatorId || coordinatorList[0]?._id || "",
       }));
     } catch (error) {
       const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -77,6 +95,14 @@ export default function HodSubjectsPage() {
                   </option>
                 ))}
               </select>
+              <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={subjectForm.coordinatorId} onChange={(e) => setSubjectForm((p) => ({ ...p, coordinatorId: e.target.value }))}>
+                <option value="">No coordinator assignment</option>
+                {coordinators.map((coordinator) => (
+                  <option key={coordinator._id} value={coordinator._id}>
+                    {coordinator.name} ({coordinator.year || "-"}-{coordinator.division || "-"})
+                  </option>
+                ))}
+              </select>
             </div>
             <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" type="submit" disabled={teachers.length === 0}>
               Create Subject
@@ -92,6 +118,7 @@ export default function HodSubjectsPage() {
                     <th className="py-2">Subject</th>
                     <th className="py-2">Code</th>
                     <th className="py-2">Teacher</th>
+                    <th className="py-2">Coordinator</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -100,11 +127,16 @@ export default function HodSubjectsPage() {
                       <td className="py-2">{subject.name}</td>
                       <td className="py-2">{subject.code}</td>
                       <td className="py-2">{subject.teacher?.name || "-"}</td>
+                      <td className="py-2">
+                        {subject.coordinator?.name
+                          ? `${subject.coordinator.name} (${subject.coordinator.year || "-"}-${subject.coordinator.division || "-"})`
+                          : "-"}
+                      </td>
                     </tr>
                   ))}
                   {subjects.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={3}>No subject found.</td>
+                      <td className="py-3 text-slate-500" colSpan={4}>No subject found.</td>
                     </tr>
                   ) : null}
                 </tbody>

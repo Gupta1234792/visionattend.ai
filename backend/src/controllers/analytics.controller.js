@@ -37,7 +37,7 @@ const attendanceOverview = async (req, res) => {
     }
 
     const [students, teachers, coordinators] = await Promise.all([
-      User.find(studentFilter).select("_id department year division").lean(),
+      User.find(studentFilter).select("_id name rollNo department year division").lean(),
       User.find(teacherFilter).select("_id name email department").lean(),
       User.find(coordinatorFilter).select("_id name department year division").lean()
     ]);
@@ -64,7 +64,8 @@ const attendanceOverview = async (req, res) => {
           session: { $in: sessionIds },
           student: { $in: studentIds }
         })
-          .select("session subject student status markedAt")
+          .select("session subject student status markedAt locationFlag location")
+          .sort({ markedAt: -1 })
           .lean()
       : [];
 
@@ -74,6 +75,7 @@ const attendanceOverview = async (req, res) => {
     const absentMarks = records.filter((r) => r.status === "absent").length;
 
     const subjectById = new Map(subjects.map((s) => [String(s._id), s]));
+    const studentMap = new Map(students.map((s) => [String(s._id), s]));
     const teacherSubjectMap = new Map();
     subjects.forEach((subject) => {
       const key = String(subject.teacher || "");
@@ -128,7 +130,6 @@ const attendanceOverview = async (req, res) => {
     });
 
     const divisionMap = new Map();
-    const studentMap = new Map(students.map((s) => [String(s._id), s]));
     records.forEach((record) => {
       const student = studentMap.get(String(record.student));
       if (!student) return;
@@ -199,6 +200,26 @@ const attendanceOverview = async (req, res) => {
       };
     });
 
+    const geoActivity = records
+      .filter(
+        (record) =>
+          Number.isFinite(Number(record.location?.latitude)) &&
+          Number.isFinite(Number(record.location?.longitude))
+      )
+      .slice(0, 300)
+      .map((record) => {
+        const student = studentMap.get(String(record.student));
+        const subject = subjectById.get(String(record.subject));
+        return {
+          id: String(record._id),
+          latitude: Number(record.location.latitude),
+          longitude: Number(record.location.longitude),
+          flag: record.locationFlag || "green",
+          label: `${student?.name || "Student"}${student?.rollNo ? ` (${student.rollNo})` : ""}`,
+          meta: `${subject?.name || "-"} | ${student?.year || "-"}-${student?.division || "-"} | ${record.status || "-"}`
+        };
+      });
+
     return res.json({
       success: true,
       metrics: {
@@ -218,7 +239,8 @@ const attendanceOverview = async (req, res) => {
         lowAttendanceThreshold: lowThreshold,
         atRiskStudents
       },
-      coordinatorMetrics
+      coordinatorMetrics,
+      geoActivity
     });
   } catch (error) {
     console.error("attendanceOverview error:", error);

@@ -22,7 +22,7 @@ export type AuthResponse = {
   emailSent?: boolean;
 };
 
-export async function login(payload: { email: string; password: string }): Promise<AuthResponse> {
+export async function login(payload: { email: string; password: string; role: UserRole }): Promise<AuthResponse> {
   const { data } = await publicApi.post<AuthResponse>("/auth/login", payload);
   return data;
 }

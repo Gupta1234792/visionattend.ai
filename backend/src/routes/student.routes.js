@@ -9,6 +9,7 @@ const {
   registerStudentFace,
   confirmStudentFaceRegistration
 } = require("../controllers/student.controller");
+const { getStudentAnalytics } = require("../controllers/studentAnalytics.controller");
 
 const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
@@ -21,6 +22,7 @@ router.post("/register", registerStudent);
 
 // 🔒 PROTECTED ROUTE
 router.get("/me", authMiddleware, getStudentProfile);
+router.get("/analytics", authMiddleware, roleMiddleware("student"), getStudentAnalytics);
 router.post("/face-register", authMiddleware, roleMiddleware("student"), registerStudentFace);
 router.post("/face-register/confirm", opencvAuth, confirmStudentFaceRegistration);
 

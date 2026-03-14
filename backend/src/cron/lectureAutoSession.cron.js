@@ -4,7 +4,8 @@ const AttendanceSession = require("../models/AttendanceSession.model");
 const College = require("../models/College.model");
 const { emitToCollegeRoom } = require("../sockets/gateway");
 
-const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 30;
+const ATTENDANCE_LIMIT_MINUTES = 10;
+const buildClassKey = ({ date, batchKey }) => `${date}_${batchKey}`;
 
 const parseBatch = (batchId) => {
   const parts = String(batchId || "").split("_");
@@ -32,7 +33,7 @@ cron.schedule("* * * * *", async () => {
       const batch = parseBatch(lecture.batchId);
       if (!batch) continue;
 
-      const classKey = `${lecture.subjectId}_${getToday()}_${lecture.batchId}`;
+      const classKey = buildClassKey({ date: getToday(), batchKey: lecture.batchId });
       const existing = await AttendanceSession.findOne({ classKey }).select("_id").lean();
       if (!existing) {
         const college = await College.findById(lecture.collegeId).select("location").lean();
@@ -58,7 +59,9 @@ cron.schedule("* * * * *", async () => {
           sessionId: String(created._id),
           subjectId: String(lecture.subjectId),
           batchKey: lecture.batchId,
-          endTime: created.endTime
+          endTime: created.endTime,
+          teacherName: "",
+          teacherEmail: ""
         });
       }
 

@@ -7,7 +7,7 @@ type AuthContextType = {
   user: AuthUser | null;
   token: string;
   loading: boolean;
-  login: (payload: { email: string; password: string; role: UserRole }) => Promise<{ ok: boolean; message: string; role?: UserRole }>;
+  login: (payload: { email: string; password: string; role: UserRole }) => Promise<{ ok: boolean; message: string; role?: UserRole; user?: AuthUser }>;
   register: (payload: { name: string; email: string; password: string; role: UserRole; bootstrapKey?: string }) => Promise<{ ok: boolean; message: string; emailSent?: boolean }>;
   logout: () => void;
 };
@@ -45,6 +45,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const clearSession = () => {
+    localStorage.removeItem("va_token");
+    localStorage.removeItem("token");
+    localStorage.removeItem("va_user");
+    setToken("");
+    setUser(null);
+  };
+
   useEffect(() => {
     setUser(readUser());
     setToken(readToken());
@@ -54,8 +62,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (payload: { email: string; password: string; role: UserRole }) => {
     setLoading(true);
     try {
-      const res = await loginRequest({ email: payload.email, password: payload.password });
+      clearSession();
+      const res = await loginRequest({
+        email: payload.email,
+        password: payload.password,
+        role: payload.role,
+      });
       if (!res.success || !res.token || !res.user) {
+        clearSession();
         return { ok: false, message: res.message || "Login failed" };
       }
 
@@ -64,8 +78,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("va_user", JSON.stringify(res.user));
       setToken(res.token);
       setUser(res.user);
-      return { ok: true, message: "Login successful", role: res.user.role };
+      return { ok: true, message: "Login successful", role: res.user.role, user: res.user };
     } catch (error) {
+      clearSession();
       return { ok: false, message: parseApiError(error, "Unable to login. Please check credentials.") };
     } finally {
       setLoading(false);
@@ -89,11 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem("va_token");
-    localStorage.removeItem("token");
-    localStorage.removeItem("va_user");
-    setToken("");
-    setUser(null);
+    clearSession();
   };
 
   const value = useMemo(

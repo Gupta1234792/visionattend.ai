@@ -10,7 +10,10 @@ const {
   markAttendance,
   getActiveSessionForStudent,
   markAttendanceViaFace,
-  scanFaceAndMarkAttendance
+  scanFaceAndMarkAttendance,
+  getActiveClassSession,
+  markClassAttendance,
+  scanFaceAndMarkClassAttendance
 } = require("../controllers/attendance.controller");
 
 /* ================= TEACHER ================= */
@@ -43,6 +46,30 @@ router.post(
   authMiddleware,
   roleMiddleware("student"),
   scanFaceAndMarkAttendance
+);
+
+// NEW: Get active class session (subject-agnostic)
+router.get(
+  "/active-class",
+  authMiddleware,
+  roleMiddleware("student"),
+  getActiveClassSession
+);
+
+// NEW: Mark class attendance (subject-agnostic)
+router.post(
+  "/mark-class",
+  authMiddleware,
+  roleMiddleware("student"),
+  markClassAttendance
+);
+
+// NEW: Scan face and mark class attendance (subject-agnostic)
+router.post(
+  "/scan-face-class",
+  authMiddleware,
+  roleMiddleware("student"),
+  scanFaceAndMarkClassAttendance
 );
 
 /* ================= OPENCV ================= */

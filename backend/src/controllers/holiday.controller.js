@@ -3,6 +3,7 @@ const OnlineLecture = require("../models/OnlineLecture.model");
 const Notification = require("../models/Notification.model");
 const User = require("../models/User.model");
 const { logAudit } = require("../utils/audit");
+const { triggerWebhookEvent } = require("../utils/webhooks");
 
 const parseBatch = (batchId) => {
   const parts = String(batchId || "").split("_");
@@ -94,6 +95,23 @@ const createHoliday = async (req, res) => {
       entityType: "BatchHoliday",
       entityId: holiday._id,
       metadata: { batchId, canceledLectures: canceled.modifiedCount || 0 }
+    });
+
+    triggerWebhookEvent({
+      event: "holiday.created",
+      collegeId: req.user.college,
+      payload: {
+        event: "holiday.created",
+        holidayId: String(holiday._id),
+        batchId,
+        reason: holiday.reason,
+        fromDate: holiday.fromDate?.toISOString?.() || new Date(holiday.fromDate).toISOString(),
+        toDate: holiday.toDate?.toISOString?.() || new Date(holiday.toDate).toISOString(),
+        canceledLectures: canceled.modifiedCount || 0,
+        createdBy: String(req.user._id)
+      }
+    }).catch((webhookError) => {
+      console.error("holiday.created webhook error:", webhookError);
     });
 
     return res.status(201).json({
