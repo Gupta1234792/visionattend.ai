@@ -36,4 +36,4 @@ RUN mkdir -p /root/.insightface/models/buffalo_l && \
 
 EXPOSE 10000
 
-CMD ["gunicorn", "--timeout", "600", "--workers", "1", "--bind", "0.0.0.0:10000", "main:app"]
+CMD ["gunicorn", "main:app", "--workers", "1", "--threads", "2", "--timeout", "120", "--bind", "0.0.0.0:10000"]

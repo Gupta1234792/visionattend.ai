@@ -5,7 +5,6 @@ import time
 import cv2
 import numpy as np
 from flask import Flask, jsonify, request
-from insightface.app import FaceAnalysis
 
 from utils.mongo import faces as faces_col
 
@@ -17,12 +16,18 @@ LIVENESS_MIN_FRAMES = max(6, int(os.getenv("LIVENESS_MIN_FRAMES", "6")))
 BLINK_MIN_DROP = float(os.getenv("BLINK_MIN_DROP", "0.035"))
 BLINK_RECOVERY_DROP = float(os.getenv("BLINK_RECOVERY_DROP", "0.020"))
 
-print("Loading InsightFace model...")
+# Lazy load the model to prevent memory issues during startup
+arcface = None
 
-arcface = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-arcface.prepare(ctx_id=-1, det_size=(640, 640))
-
-print("InsightFace loaded")
+def get_arcface_model():
+    global arcface
+    if arcface is None:
+        print("Loading InsightFace model...")
+        from insightface.app import FaceAnalysis
+        arcface = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        arcface.prepare(ctx_id=-1, det_size=(640, 640))
+        print("InsightFace loaded")
+    return arcface
 
 
 def decode_image_payload(image_value):
@@ -55,7 +60,8 @@ def decode_frame_sequence(frames_value):
 
 
 def extract_single_face(frame):
-    faces = arcface.get(frame)
+    arcface_model = get_arcface_model()
+    faces = arcface_model.get(frame)
 
     if not faces:
         return None, "No face detected"
