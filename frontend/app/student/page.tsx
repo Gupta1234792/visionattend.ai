@@ -892,14 +892,18 @@ export default function StudentPage() {
         
         if (!registered) {
           setMessage("Please complete face registration to access the dashboard.");
-          // Redirect to face registration after a short delay
+          // Redirect to face registration immediately with proper state sync
           setTimeout(() => {
-            router.push('/student/face-register');
-          }, 2000);
+            router.replace('/student/face-register');
+          }, 100);
         }
       } catch (error) {
         console.error("Failed to check face registration status:", error);
         setFaceRegistered(false);
+        // Redirect to face registration on error as well
+        setTimeout(() => {
+          router.replace('/student/face-register');
+        }, 100);
       }
     };
 
@@ -1160,6 +1164,8 @@ export default function StudentPage() {
         setMessage("Camera API not available on this device/browser.");
         return;
       }
+      
+      // Initialize camera immediately without loading AI models
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "user" },
@@ -1172,29 +1178,36 @@ export default function StudentPage() {
       if (attendanceVideoRef.current)
         attendanceVideoRef.current.srcObject = stream;
       setCameraOpen(true);
+      setMessage("Camera opened successfully. Ready for face scan.");
+      pushToast("Camera opened successfully", "success");
     } catch (error) {
       const name = (error as { name?: string })?.name || "";
       if (name === "NotFoundError" || name === "DevicesNotFoundError") {
         setMessage("Live camera stream not found on this device.");
+        pushToast("Camera not found. Please connect a webcam.", "error");
         return;
       }
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
         setMessage(
           "Camera permission denied. Allow camera access in browser settings.",
         );
+        pushToast("Camera permission denied. Please enable camera access.", "error");
         return;
       }
       if (name === "NotReadableError" || name === "TrackStartError") {
         setMessage("Camera is busy in another app. Close that app and retry.");
+        pushToast("Camera is busy. Close other camera apps and retry.", "error");
         return;
       }
       if (typeof window !== "undefined" && !window.isSecureContext) {
         setMessage(
           "Live camera may be blocked on HTTP mobile URL. Run the app on HTTPS.",
         );
+        pushToast("Camera blocked on HTTP. Use HTTPS for camera access.", "error");
         return;
       }
       setMessage("Unable to open camera.");
+      pushToast("Failed to open camera. Please try again.", "error");
     }
   };
 

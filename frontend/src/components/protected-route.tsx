@@ -34,15 +34,29 @@ export function ProtectedRoute({
       return;
     }
 
+    // Enhanced student face registration check
     const studentFacePending =
       user.role === "student" &&
       !user.faceRegistered &&
       !devFaceBypassed &&
       pathname !== "/student/face-register" &&
-      pathname !== "/student/register";
+      pathname !== "/student/register" &&
+      pathname !== "/student";
 
     if (studentFacePending) {
-      router.replace("/student/face-register");
+      // Redirect to face registration with a delay to allow proper state sync
+      setTimeout(() => {
+        router.replace("/student/face-register");
+      }, 100);
+      return;
+    }
+
+    // If student is on dashboard but not registered, redirect to face registration
+    if (user.role === "student" && !user.faceRegistered && !devFaceBypassed && pathname === "/student") {
+      setTimeout(() => {
+        router.replace("/student/face-register");
+      }, 100);
+      return;
     }
   }, [allow, token, user, loading, router, pathname, devFaceBypassed]);
 
@@ -61,8 +75,13 @@ export function ProtectedRoute({
         parsed.faceRegistered = faceRegistered;
         localStorage.setItem("va_user", JSON.stringify(parsed));
 
-        if (!faceRegistered && !devFaceBypassed && pathname !== "/student/face-register") {
-          router.replace("/student/face-register");
+        // Enhanced redirect logic
+        if (!faceRegistered && !devFaceBypassed) {
+          if (pathname !== "/student/face-register" && pathname !== "/student/register") {
+            setTimeout(() => {
+              router.replace("/student/face-register");
+            }, 100);
+          }
         }
       } catch {
         // keep existing local session state if profile sync fails
@@ -77,7 +96,8 @@ export function ProtectedRoute({
     !user.faceRegistered &&
     !devFaceBypassed &&
     pathname !== "/student/face-register" &&
-    pathname !== "/student/register";
+    pathname !== "/student/register" &&
+    pathname !== "/student";
 
   if (loading || !token || !user || !allow.includes(user.role) || studentFacePending) {
     return <div className="p-6 text-sm text-slate-600">Loading...</div>;
