@@ -5,6 +5,7 @@ const College = require("../models/College.model");
 const { emitToCollegeRoom } = require("../sockets/gateway");
 
 const ATTENDANCE_LIMIT_MINUTES = 10;
+const LECTURE_MAX_DURATION_HOURS = 2; // Auto timeout after 2 hours
 const buildClassKey = ({ date, batchKey }) => `${date}_${batchKey}`;
 
 const parseBatch = (batchId) => {
@@ -75,6 +76,42 @@ cron.schedule("* * * * *", async () => {
           }
         }
       );
+    }
+
+    // Auto timeout lectures that exceed maximum duration
+    const liveLectures = await OnlineLecture.find({
+      status: "LIVE",
+      startedAt: { $exists: true, $ne: null }
+    })
+      .select("_id batchId collegeId startedAt")
+      .lean();
+
+    for (const lecture of liveLectures) {
+      const startedAt = new Date(lecture.startedAt);
+      const maxEndTime = new Date(startedAt.getTime() + LECTURE_MAX_DURATION_HOURS * 60 * 60 * 1000);
+      
+      if (now > maxEndTime) {
+        await OnlineLecture.updateOne(
+          { _id: lecture._id, status: "LIVE" },
+          {
+            $set: {
+              status: "ENDED",
+              endedAt: now
+            }
+          }
+        );
+
+        emitToCollegeRoom(
+          String(lecture.collegeId || ""),
+          `batch_${lecture.batchId}`,
+          "live_class_ended",
+          {
+            lectureId: String(lecture._id),
+            batchId: lecture.batchId,
+            endedAt: now.toISOString()
+          }
+        );
+      }
     }
   } catch (error) {
     console.error("lectureAutoSession cron error:", error);

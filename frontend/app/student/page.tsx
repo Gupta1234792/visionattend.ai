@@ -8,6 +8,7 @@ import { ProtectedRoute } from "@/src/components/protected-route";
 import { ToastItem, ToastStack } from "@/src/components/toast-stack";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
 import { useAuth } from "@/src/context/auth-context";
+import { useRouter } from "next/navigation";
 import {
   AttendanceHeatmap,
   type HeatmapPoint,
@@ -334,6 +335,7 @@ const renderMessageMarkdown = (
 };
 
 export default function StudentPage() {
+  const router = useRouter();
   const { user, token } = useAuth();
   const [message, setMessage] = useState("Student dashboard ready.");
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -361,6 +363,7 @@ export default function StudentPage() {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [faceHint, setFaceHint] = useState("");
+  const [todaysTimetable, setTodaysTimetable] = useState<any>(null);
   const allowManualBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
   const [botMessages, setBotMessages] = useState<BotMessage[]>([
     {
@@ -382,6 +385,7 @@ export default function StudentPage() {
   const [miniHeatmapData, setMiniHeatmapData] = useState<HeatmapPoint[]>([]);
   const [miniAttendanceRate, setMiniAttendanceRate] = useState(0);
   const [lectureBannerSeconds, setLectureBannerSeconds] = useState(0);
+  const [faceRegistered, setFaceRegistered] = useState<boolean | null>(null);
 
   const [isPolling, setIsPolling] = useState(false);
 
@@ -656,6 +660,34 @@ export default function StudentPage() {
     }
   };
 
+  const loadTodaysTimetable = async () => {
+    if (!user?.department) return;
+    try {
+      const batchId = `${user.department}_${user.year}_${user.division}`;
+      const res = await api.get(`/timetables/today/${batchId}`);
+      setTodaysTimetable(res.data.timetable);
+    } catch (error) {
+      console.error("Failed to load today's timetable:", error);
+      setTodaysTimetable(null);
+    }
+  };
+
+  const checkActiveLecture = async () => {
+    if (!batchKey) return;
+    try {
+      const res = await api.get(`/lectures/active/${batchKey}`);
+      const lecture = res.data?.lecture;
+      
+      if (lecture) {
+        setActiveLiveLecture(lecture);
+        // Show toast notification for active lecture
+        pushToast(`${lecture.title} is live now!`, "success");
+      }
+    } catch (error) {
+      console.error("Failed to check active lecture:", error);
+    }
+  };
+
   const clearActiveSession = (nextMessage?: string) => {
     activeSessionIdRef.current = "";
     setActiveSessionId("");
@@ -727,6 +759,8 @@ export default function StudentPage() {
       void loadClassroomTeachers();
       void loadNotifications();
       void loadMiniAnalytics();
+      void loadTodaysTimetable();
+      void checkActiveLecture(); // Check for active lectures on dashboard load
       setIsPolling(true);
     }, 0);
     return () => {
@@ -842,6 +876,38 @@ export default function StudentPage() {
     );
   }, [activeLiveLecture?._id]);
 
+  // Check face registration status on mount
+  useEffect(() => {
+    const checkFaceRegistration = async () => {
+      try {
+        const res = await api.get("/students/me");
+        const registered = Boolean(res.data?.student?.faceRegisteredAt);
+        setFaceRegistered(registered);
+        
+        // DEV_MODE: Skip face registration check
+        if (process.env.NEXT_PUBLIC_DEV_MODE === "true") {
+          setFaceRegistered(true);
+          return;
+        }
+        
+        if (!registered) {
+          setMessage("Please complete face registration to access the dashboard.");
+          // Redirect to face registration after a short delay
+          setTimeout(() => {
+            router.push('/student/face-register');
+          }, 2000);
+        }
+      } catch (error) {
+        console.error("Failed to check face registration status:", error);
+        setFaceRegistered(false);
+      }
+    };
+
+    if (user) {
+      void checkFaceRegistration();
+    }
+  }, [user, router]);
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!token || !user?.college) return;
@@ -852,6 +918,10 @@ export default function StudentPage() {
     socket.on("connect", () => {
       if (liveRoomId) socket.emit("join-room", { roomId: liveRoomId });
       if (mediaRoomId) socket.emit("join-room", { roomId: mediaRoomId });
+      // Join batch room for batch-specific events like live class notifications
+      if (batchKey) {
+        socket.emit("join-batch-room", { batchId: batchKey });
+      }
     });
 
     socket.on("chat-message", (payload: Announcement) => {
@@ -921,6 +991,61 @@ export default function StudentPage() {
       leaveLiveClass();
       setActiveLiveLecture(null);
       pushToast("Live lecture ended.", "info");
+    });
+
+    // NEW: Handle live class started event with banner
+    socket.on("live_class_started", (payload: {
+      lectureId: string;
+      batchId: string;
+      title: string;
+      subject: string;
+      teacher: string;
+      meetingRoomId: string;
+      meetingLink: string;
+      startedAt: string;
+    }) => {
+      if (payload?.batchId && payload.batchId !== batchKey) return;
+      
+      // Find the lecture in our list
+      const lecture = upcomingLectures.find(l => l._id === payload.lectureId);
+      if (lecture) {
+        setActiveLiveLecture(lecture);
+        pushToast(`${lecture.title} is live now!`, "success");
+      } else {
+        // Manual lecture not in schedule
+        pushToast("Live lecture started!", "success");
+      }
+    });
+
+    // NEW: Handle live class ended event
+    socket.on("live_class_ended", (payload: {
+      lectureId: string;
+      batchId: string;
+      endedAt: string;
+    }) => {
+      if (payload?.batchId && payload.batchId !== batchKey) return;
+      
+      if (activeLiveLecture?._id === payload.lectureId) {
+        setActiveLiveLecture(null);
+        leaveLiveClass();
+        pushToast("Live lecture ended.", "info");
+      }
+    });
+
+    // Handle timetable updates
+    socket.on("TIMETABLE_UPDATED", (payload: {
+      batchKey: string;
+      date: string;
+      action: string;
+    }) => {
+      if (payload?.batchKey && payload.batchKey !== batchKey) return;
+      
+      // Refresh today's timetable if it's for today
+      const today = new Date().toISOString().split('T')[0];
+      if (payload.date === today) {
+        void loadTodaysTimetable();
+        pushToast(`Timetable ${payload.action} for today.`, "info");
+      }
     });
 
     socket.on(
@@ -1620,7 +1745,7 @@ export default function StudentPage() {
                     Teacher started live lecture
                   </h2>
                   <p className="mt-1 text-sm text-emerald-800">
-                    {activeLiveLecture.title} - {activeLiveLecture.subjectId?.name || "-"} -{" "}
+                    {activeLiveLecture.title || "Live Lecture"} - {activeLiveLecture.subjectId?.name || "-"} -{" "}
                     {activeLiveLecture.teacherId?.name || "Teacher"}
                   </p>
                   <p className="mt-1 text-xs text-emerald-700">
@@ -1659,7 +1784,13 @@ export default function StudentPage() {
                 </div>
               </div>
             </section>
-          ) : null}
+          ) : (
+            <section className="rounded-3xl border border-slate-200 bg-slate-50/50 p-4 shadow-[0_8px_25px_rgba(15,23,42,0.06)] xl:col-span-2">
+              <p className="text-sm text-slate-600">
+                No live lectures at this time. Check your timetable for scheduled classes.
+              </p>
+            </section>
+          )}
 
           {/* NEW: Attendance Start Alert Panel */}
           {activeSessionMeta && (
@@ -2329,6 +2460,70 @@ export default function StudentPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+            <h2 className="text-base font-semibold">Today's Schedule</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Your classes for today based on the manual timetable set by your coordinator.
+            </p>
+            <div className="mt-3 overflow-x-auto">
+              {todaysTimetable ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="py-2">Time</th>
+                      <th className="py-2">Subject</th>
+                      <th className="py-2">Teacher</th>
+                      <th className="py-2">Type</th>
+                      <th className="py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {todaysTimetable.periods?.map((period: any, index: number) => (
+                      <tr key={index} className="border-b border-slate-100">
+                        <td className="py-2">
+                          {period.startTime} - {period.endTime}
+                        </td>
+                        <td className="py-2">{period.subject || "-"}</td>
+                        <td className="py-2">{period.teacher || "-"}</td>
+                        <td className="py-2">
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
+                            period.type === "lecture" ? "bg-blue-100 text-blue-700" :
+                            period.type === "lab" ? "bg-green-100 text-green-700" :
+                            "bg-gray-100 text-gray-700"
+                          }`}>
+                            {period.type || "lecture"}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
+                            period.status === "completed" ? "bg-green-100 text-green-700" :
+                            period.status === "ongoing" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-gray-100 text-gray-700"
+                          }`}>
+                            {period.status || "pending"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {todaysTimetable.periods?.length === 0 ? (
+                      <tr>
+                        <td className="py-3 text-slate-500" colSpan={5}>
+                          No classes scheduled for today.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                  <p className="text-sm text-slate-600">
+                    No timetable set for today. Please check with your coordinator.
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 

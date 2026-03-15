@@ -10,7 +10,8 @@ const {
   startLecture,
   endLecture,
   joinLecture,
-  leaveLecture
+  leaveLecture,
+  getActiveLecture
 } = require("../controllers/lecture.controller");
 
 router.post(
@@ -60,6 +61,13 @@ router.post(
   authMiddleware,
   roleMiddleware("student", "parent", "teacher", "coordinator"),
   leaveLecture
+);
+
+router.get(
+  "/active/:batchId",
+  authMiddleware,
+  roleMiddleware("admin", "hod", "teacher", "coordinator", "student", "parent"),
+  getActiveLecture
 );
 
 module.exports = router;

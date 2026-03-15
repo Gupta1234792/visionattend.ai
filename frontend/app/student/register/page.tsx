@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { publicApi } from "@/src/services/api";
 
 type InviteData = {
@@ -90,6 +90,8 @@ function StudentRegisterPageContent() {
     }
   };
 
+  const router = useRouter();
+
   const onRegister = async (e: FormEvent) => {
     e.preventDefault();
     const activeToken = token || tokenFromUrl;
@@ -114,6 +116,11 @@ function StudentRegisterPageContent() {
       });
       setMessage(data?.message || "Student registration completed. Please login.");
       setStudentForm({ name: "", email: "", password: "", rollNo: "", parentEmail: "" });
+      
+      // Redirect to face registration after successful registration
+      setTimeout(() => {
+        router.push('/student/face-register');
+      }, 2000);
     } catch (error) {
       setMessage(parseApiError(error, "Registration failed."));
     }

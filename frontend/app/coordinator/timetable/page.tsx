@@ -1,543 +1,505 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  CalendarDays,
-  Copy,
-  FileDown,
-  GripVertical,
-  Plus,
-  Save,
-  Send,
-  Sparkles,
-  Trash2
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/src/context/auth-context";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
-import { useAuth } from "@/src/context/auth-context";
-import {
-  createTimetable,
-  deleteTimetable,
-  downloadTimetablePdf,
-  duplicateTimetable,
-  getWeeklyTimetable,
-  Timetable,
-  TimetableSlotInput,
-  updateTimetable,
-} from "@/src/services/timetable";
+import { ToastItem, ToastStack } from "@/src/components/toast-stack";
 
-type TeacherRow = { _id: string; name: string; email: string };
-type SubjectRow = {
+type TimetableSlot = {
+  startTime: string;
+  endTime: string;
+  subject: string;
+  teacherName: string;
+  teacherId: string;
+  type: "lecture" | "practical" | "break" | "custom";
+  notes: string;
+  order: number;
+};
+
+type TimetableEntry = {
   _id: string;
-  name: string;
-  code: string;
-  teacher?: { _id?: string; name?: string; email?: string };
+  classLabel: string;
+  date: string;
+  department: { _id: string; name: string };
+  batchKey: string;
+  year: string;
+  division: string;
+  slots: TimetableSlot[];
+  createdBy: { _id: string; name: string };
+  isPublished: boolean;
+  isActive: boolean;
 };
 
-type BuilderSlot = TimetableSlotInput & { key: string };
+type Subject = { _id: string; name: string; code: string; teacher: { _id: string; name: string } };
+type Teacher = { _id: string; name: string; email: string; subjects: string[] };
 
-const createEmptySlot = (): BuilderSlot => ({
-  key: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  startTime: "",
-  endTime: "",
-  subject: "",
-  teacherName: "",
-  teacherId: "",
-  type: "theory",
-  notes: "",
-});
-
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-};
-
-const getNextDate = (value?: string) => {
-  const base = value ? new Date(value) : new Date();
-  if (Number.isNaN(base.getTime())) return "";
-  base.setDate(base.getDate() + 1);
-  return base.toISOString().split("T")[0];
-};
-
-export default function CoordinatorTimetableBuilderPage() {
+export default function CoordinatorTimetablePage() {
   const { user } = useAuth();
-  const [date, setDate] = useState("");
-  const [classLabel, setClassLabel] = useState("");
-  const [slots, setSlots] = useState<BuilderSlot[]>([createEmptySlot()]);
-  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
-  const [subjects, setSubjects] = useState<SubjectRow[]>([]);
-  const [weeklyRows, setWeeklyRows] = useState<Timetable[]>([]);
-  const [duplicateDates, setDuplicateDates] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState("Build a timetable draft, then publish it to students and teachers.");
-  const [editingId, setEditingId] = useState("");
-  const [draggingKey, setDraggingKey] = useState("");
+  const [timetables, setTimetables] = useState<TimetableEntry[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const year = String(user?.year || "TY");
-  const division = String(user?.division || "A");
-  const batchKey = useMemo(
-    () => (user?.department ? `${user.department}_${year}_${division}` : ""),
-    [user?.department, year, division]
-  );
+  // Form states
+  const [newEntry, setNewEntry] = useState({
+    classLabel: "",
+    date: "",
+    department: "",
+    year: "FY",
+    division: "A",
+    slots: [] as TimetableSlot[]
+  });
+
+  const [editingEntry, setEditingEntry] = useState<TimetableEntry | null>(null);
+
+  const parseApiError = (error: unknown, fallback: string) => {
+    const maybeMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    return maybeMessage || fallback;
+  };
+
+  const pushToast = (text: string, type: "success" | "error" | "info" = "info") => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setToasts((prev) => [...prev, { id, text, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== id)), 3200);
+  };
+
+  const loadTimetables = async () => {
+    try {
+      const res = await api.get("/timetables/range/TY_IT"); // Default batch
+      setTimetables(res.data.timetables || []);
+    } catch (error) {
+      pushToast(parseApiError(error, "Failed to load timetables"), "error");
+    }
+  };
+
+  const loadSubjects = async () => {
+    if (!user?.department) return;
+    try {
+      const res = await api.get("/subjects/mine");
+      setSubjects(res.data.subjects || []);
+    } catch (error) {
+      pushToast(parseApiError(error, "Failed to load subjects"), "error");
+    }
+  };
+
+  const loadTeachers = async () => {
+    if (!user?.department) return;
+    try {
+      const res = await api.get(`/classroom/${user.department}/teachers`);
+      setTeachers(res.data.teachers || []);
+    } catch (error) {
+      pushToast(parseApiError(error, "Failed to load teachers"), "error");
+    }
+  };
 
   useEffect(() => {
-    if (!classLabel) {
-      setClassLabel(`${year}-${division}`);
-    }
-  }, [classLabel, division, year]);
+    loadTimetables();
+    loadSubjects();
+    loadTeachers();
+  }, []);
 
-  const loadWeeklyRows = async () => {
-    const refreshed = await getWeeklyTimetable(batchKey);
-    const rows = refreshed.timetables || [];
-    setWeeklyRows(rows);
-    setDuplicateDates(
-      rows.reduce<Record<string, string>>((acc, row) => {
-        acc[row._id] = getNextDate(row.date);
-        return acc;
-      }, {})
-    );
-  };
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [teacherRes, subjectRes] = await Promise.all([
-          api.get("/teachers"),
-          api.get("/subjects/mine"),
-          loadWeeklyRows()
-        ]);
-        setTeachers(teacherRes.data?.teachers || []);
-        setSubjects(subjectRes.data?.subjects || []);
-      } catch {
-        setTeachers([]);
-        setSubjects([]);
-        setWeeklyRows([]);
-      }
-    };
-
-    if (batchKey) {
-      void load();
-    }
-  }, [batchKey]);
-
-  const updateSlot = (key: string, patch: Partial<BuilderSlot>) => {
-    setSlots((current) =>
-      current.map((slot) => (slot.key === key ? { ...slot, ...patch } : slot))
-    );
-  };
-
-  const reorderSlots = (fromKey: string, toKey: string) => {
-    setSlots((current) => {
-      const fromIndex = current.findIndex((slot) => slot.key === fromKey);
-      const toIndex = current.findIndex((slot) => slot.key === toKey);
-      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return current;
-      const updated = [...current];
-      const [item] = updated.splice(fromIndex, 1);
-      updated.splice(toIndex, 0, item);
-      return updated;
-    });
-  };
-
-  const moveSlot = (key: string, direction: -1 | 1) => {
-    setSlots((current) => {
-      const index = current.findIndex((slot) => slot.key === key);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
-      const updated = [...current];
-      const [item] = updated.splice(index, 1);
-      updated.splice(nextIndex, 0, item);
-      return updated;
-    });
-  };
-
-  const autoSortSlotsByTime = () => {
-    setSlots((current) =>
-      [...current].sort((first, second) => {
-        if (!first.startTime) return 1;
-        if (!second.startTime) return -1;
-        return first.startTime.localeCompare(second.startTime);
-      })
-    );
-    setMessage("Slots auto-sorted by start time.");
-  };
-
-  const hydrateForm = (timetable: Timetable) => {
-    setEditingId(timetable._id);
-    setDate(timetable.date);
-    setClassLabel(timetable.classLabel);
-    setSlots(
-      timetable.slots.map((slot, index) => {
-        const teacherRef = slot.teacherId as
-          | string
-          | { _id: string; name?: string; email?: string }
-          | undefined;
-        const teacherId = typeof teacherRef === "string" ? teacherRef : teacherRef?._id || "";
-
-        return {
-          key: slot._id || `${timetable._id}_${index}`,
-          startTime: slot.startTime,
-          endTime: slot.endTime || "",
-          subject: slot.subject,
-          teacherName: slot.teacherName || "",
-          teacherId,
-          type: slot.type,
-          notes: slot.notes || "",
-          order: index,
-        };
-      })
-    );
-    setMessage(`Editing ${timetable.classLabel} timetable for ${timetable.date}.`);
-  };
-
-  const normalisedSlots = slots
-    .filter((slot) => slot.startTime && slot.subject)
-    .map((slot, index) => ({
-      startTime: slot.startTime,
-      endTime: slot.endTime || "",
-      subject: slot.subject.trim(),
-      teacherName: slot.teacherName?.trim() || "",
-      teacherId: slot.teacherId || "",
-      type: slot.type,
-      notes: slot.notes?.trim() || "",
-      order: index,
+  const addSlot = () => {
+    setNewEntry(prev => ({
+      ...prev,
+      slots: [...prev.slots, {
+        startTime: "",
+        endTime: "",
+        subject: "",
+        teacherName: "",
+        teacherId: "",
+        type: "lecture",
+        notes: "",
+        order: prev.slots.length
+      }]
     }));
-
-  const submit = async (publish: boolean) => {
-    if (!date) {
-      setMessage("Select timetable date first.");
-      return;
-    }
-
-    if (!normalisedSlots.length) {
-      setMessage("Add at least one valid timetable slot.");
-      return;
-    }
-
-    try {
-      const payload = {
-        classLabel: classLabel.trim() || `${year}-${division}`,
-        year,
-        division,
-        date,
-        slots: normalisedSlots,
-        isPublished: publish,
-      };
-
-      const result = editingId
-        ? await updateTimetable(editingId, payload)
-        : await createTimetable(payload);
-
-      if (!result.success) {
-        setMessage(result.message || "Failed to save timetable.");
-        return;
-      }
-
-      setMessage(publish ? "Timetable published successfully." : "Timetable saved as draft.");
-      setEditingId("");
-      setDate("");
-      setSlots([createEmptySlot()]);
-      await loadWeeklyRows();
-    } catch (error) {
-      const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setMessage(apiMessage || "Failed to save timetable.");
-    }
   };
 
-  const removeTimetableRow = async (id: string) => {
-    try {
-      const result = await deleteTimetable(id);
-      setMessage(result.message || "Timetable deleted.");
-      await loadWeeklyRows();
-    } catch {
-      setMessage("Failed to delete timetable.");
-    }
+  const removeSlot = (index: number) => {
+    setNewEntry(prev => ({
+      ...prev,
+      slots: prev.slots.filter((_, i) => i !== index)
+    }));
   };
 
-  const duplicateRow = async (row: Timetable, publish: boolean) => {
-    const targetDate = duplicateDates[row._id];
-    if (!targetDate) {
-      setMessage("Choose a target date first.");
+  const updateSlot = (index: number, field: string, value: any) => {
+    setNewEntry(prev => ({
+      ...prev,
+      slots: prev.slots.map((slot, i) =>
+        i === index ? { ...slot, [field]: value } : slot
+      )
+    }));
+  };
+
+  const createTimetable = async () => {
+    if (!newEntry.classLabel || !newEntry.date || !newEntry.department || !newEntry.slots.length) {
+      pushToast("Please fill all required fields", "error");
       return;
     }
 
+    setLoading(true);
     try {
-      const result = await duplicateTimetable(row._id, {
-        targetDate,
-        classLabel: row.classLabel,
-        isPublished: publish
+      const res = await api.post("/timetables/manual", newEntry);
+      pushToast("Timetable created successfully", "success");
+      loadTimetables();
+      setNewEntry({
+        classLabel: "",
+        date: "",
+        department: "",
+        year: "FY",
+        division: "A",
+        slots: []
       });
-
-      if (!result.success) {
-        setMessage(result.message || "Failed to duplicate timetable.");
-        return;
-      }
-
-      setMessage(publish ? "Timetable duplicated and published." : "Timetable duplicated as draft.");
-      await loadWeeklyRows();
     } catch (error) {
-      const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setMessage(apiMessage || "Failed to duplicate timetable.");
+      pushToast(parseApiError(error, "Failed to create timetable"), "error");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const exportPdf = async (row: Timetable) => {
+  const updateTimetable = async () => {
+    if (!editingEntry) return;
+    setLoading(true);
     try {
-      const blob = await downloadTimetablePdf(row._id);
-      const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `timetable_${row.classLabel}_${row.date}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-      setMessage("Timetable PDF exported.");
+      const res = await api.put(`/timetables/manual/${editingEntry._id}`, {
+        classLabel: editingEntry.classLabel,
+        date: editingEntry.date,
+        slots: editingEntry.slots
+      });
+      pushToast("Timetable updated successfully", "success");
+      loadTimetables();
+      setEditingEntry(null);
     } catch (error) {
-      const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setMessage(apiMessage || "Failed to export timetable PDF.");
+      pushToast(parseApiError(error, "Failed to update timetable"), "error");
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const deleteTimetable = async (timetableId: string) => {
+    setLoading(true);
+    try {
+      const res = await api.delete(`/timetables/manual/${timetableId}`);
+      pushToast("Timetable deleted successfully", "success");
+      loadTimetables();
+    } catch (error) {
+      pushToast(parseApiError(error, "Failed to delete timetable"), "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTeacherName = (teacherId: string) => {
+    const teacher = teachers.find(t => t._id === teacherId);
+    return teacher ? teacher.name : "";
+  };
+
+  const getSubjectName = (subjectId: string) => {
+    const subject = subjects.find(s => s._id === subjectId);
+    return subject ? subject.name : "";
   };
 
   return (
-    <ProtectedRoute allow={["coordinator"]}>
-      <DashboardLayout title="Smart Timetable Builder">
-        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-[1.9rem] border border-white/60 bg-white/65 p-5 shadow-[0_22px_55px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Coordinator Tool</p>
-                <h1 className="mt-2 text-2xl font-semibold text-slate-900">Daily timetable builder</h1>
-                <p className="mt-2 text-sm text-slate-600">Drag slots into order, duplicate timetable plans, and export printable PDF sheets for class circulation.</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                <p className="font-semibold">{classLabel || `${year}-${division}`}</p>
-                <p>{date || "No date selected"}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-slate-700">Class Label</span>
+    <ProtectedRoute allow={["coordinator", "admin"]}>
+      <DashboardLayout title="Coordinator Timetable Management">
+        <ToastStack
+          toasts={toasts}
+          onDismiss={(id) => setToasts((prev) => prev.filter((item) => item.id !== id))}
+        />
+        
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Create New Timetable */}
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
+            <h2 className="text-base font-semibold">Create New Timetable Entry</h2>
+            <p className="mt-2 text-sm text-slate-600">Add manual timetable entries for your batch</p>
+            
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
                 <input
-                  value={classLabel}
-                  onChange={(e) => setClassLabel(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                  placeholder="TY-IT"
+                  type="text"
+                  placeholder="Class Label (e.g., TY-IT)"
+                  value={newEntry.classLabel}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, classLabel: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-slate-700">Date</span>
                 <input
                   type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                  value={newEntry.date}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
-              </label>
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={() => setSlots((current) => [...current, createEmptySlot()])} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-                <Plus className="h-4 w-4" />
-                Add Slot
-              </button>
-              <button type="button" onClick={autoSortSlotsByTime} className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
-                <Sparkles className="h-4 w-4" />
-                Auto-sort by time
-              </button>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              {slots.map((slot, index) => (
-                <article
-                  key={slot.key}
-                  draggable
-                  onDragStart={() => setDraggingKey(slot.key)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => {
-                    if (draggingKey) {
-                      reorderSlots(draggingKey, slot.key);
-                      setDraggingKey("");
-                    }
-                  }}
-                  onDragEnd={() => setDraggingKey("")}
-                  className={`rounded-[1.6rem] border bg-white/80 p-4 shadow-sm transition ${
-                    draggingKey === slot.key ? "border-sky-300 ring-2 ring-sky-100" : "border-slate-200"
-                  }`}
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <select
+                  value={newEntry.year}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, year: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex h-10 w-10 cursor-grab items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500">
-                        <GripVertical className="h-4 w-4" />
-                      </span>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Slot {index + 1}</p>
-                        <p className="text-sm text-slate-600">Theory, practical, event, break, or special session.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => moveSlot(slot.key, -1)} className="rounded-xl border border-slate-200 p-2 text-slate-600">
-                        <ArrowUp className="h-4 w-4" />
-                      </button>
-                      <button type="button" onClick={() => moveSlot(slot.key, 1)} className="rounded-xl border border-slate-200 p-2 text-slate-600">
-                        <ArrowDown className="h-4 w-4" />
-                      </button>
-                      <button type="button" onClick={() => setSlots((current) => current.filter((item) => item.key !== slot.key))} className="rounded-xl border border-rose-200 p-2 text-rose-600">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+                  <option value="FY">FY</option>
+                  <option value="SY">SY</option>
+                  <option value="TY">TY</option>
+                  <option value="FINAL">FINAL</option>
+                </select>
+                <select
+                  value={newEntry.division}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, division: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="Department ID"
+                  value={newEntry.department}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, department: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    <input type="time" value={slot.startTime} onChange={(e) => updateSlot(slot.key, { startTime: e.target.value })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3" />
-                    <input type="time" value={slot.endTime} onChange={(e) => updateSlot(slot.key, { endTime: e.target.value })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3" />
-                    <select value={slot.type} onChange={(e) => updateSlot(slot.key, { type: e.target.value as BuilderSlot["type"] })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                      <option value="theory">Theory</option>
-                      <option value="practical">Practical</option>
-                      <option value="event">Event</option>
-                      <option value="break">Break</option>
-                    </select>
-                    <select
-                      value={
-                        subjects.find((subject) =>
-                          slot.subject.startsWith(subject.name)
-                        )?._id || ""
-                      }
-                      onChange={(e) => {
-                        const subject = subjects.find((item) => item._id === e.target.value);
-                        if (!subject) return;
-                        updateSlot(slot.key, {
-                          subject: `${subject.name}${subject.code ? ` (${subject.code})` : ""}`,
-                          teacherId: subject.teacher?._id || slot.teacherId,
-                          teacherName: subject.teacher?.name || slot.teacherName,
-                        });
-                      }}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                    >
-                      <option value="">Pick from subject list</option>
-                      {subjects.map((subject) => (
-                        <option key={subject._id} value={subject._id}>
-                          {subject.name} {subject.code ? `(${subject.code})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <input value={slot.subject} onChange={(e) => updateSlot(slot.key, { subject: e.target.value })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 md:col-span-2" placeholder="Custom subject or session name" />
-                    <div className="grid gap-3 md:grid-cols-2">
+              {/* Slots Management */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-medium">Timetable Slots</h3>
+                  <button
+                    onClick={addSlot}
+                    className="rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Add Slot
+                  </button>
+                </div>
+
+                {newEntry.slots.map((slot, index) => (
+                  <div key={index} className="rounded-lg border border-slate-200 p-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <input
+                        type="time"
+                        value={slot.startTime}
+                        onChange={(e) => updateSlot(index, "startTime", e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Start Time"
+                      />
+                      <input
+                        type="time"
+                        value={slot.endTime}
+                        onChange={(e) => updateSlot(index, "endTime", e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="End Time (optional)"
+                      />
                       <select
-                        value={slot.teacherId || ""}
-                        onChange={(e) => {
-                          const teacherId = e.target.value;
-                          const teacher = teachers.find((item) => item._id === teacherId);
-                          updateSlot(slot.key, { teacherId, teacherName: teacher?.name || slot.teacherName });
-                        }}
-                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                        value={slot.type}
+                        onChange={(e) => updateSlot(index, "type", e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       >
-                        <option value="">Select teacher account</option>
-                        {teachers.map((teacher) => (
-                          <option key={teacher._id} value={teacher._id}>
-                            {teacher.name}
-                          </option>
-                        ))}
+                        <option value="lecture">Lecture</option>
+                        <option value="practical">Practical</option>
+                        <option value="break">Break</option>
+                        <option value="custom">Custom</option>
                       </select>
-                      <input value={slot.teacherName} onChange={(e) => updateSlot(slot.key, { teacherName: e.target.value })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3" placeholder="Teacher name" />
                     </div>
-                    <textarea value={slot.notes} onChange={(e) => updateSlot(slot.key, { notes: e.target.value })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 md:col-span-2 xl:col-span-3" placeholder="Optional notes" rows={2} />
+                    
+                    <div className="mt-4 grid grid-cols-2 gap-4">
+                      <input
+                        type="text"
+                        value={slot.subject}
+                        onChange={(e) => updateSlot(index, "subject", e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Subject Name"
+                      />
+                      <input
+                        type="text"
+                        value={slot.teacherName}
+                        onChange={(e) => updateSlot(index, "teacherName", e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Teacher Name (optional)"
+                      />
+                    </div>
+                    
+                    <input
+                      type="text"
+                      value={slot.notes}
+                      onChange={(e) => updateSlot(index, "notes", e.target.value)}
+                      className="mt-4 rounded-lg border border-slate-300 px-3 py-2 text-sm w-full"
+                      placeholder="Additional Notes (optional)"
+                    />
+                    
+                    <button
+                      onClick={() => removeSlot(index)}
+                      className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
+                    >
+                      Remove Slot
+                    </button>
                   </div>
-                </article>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={() => void submit(false)} className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
-                <Save className="h-4 w-4" />
-                Save Draft
-              </button>
-              <button type="button" onClick={() => void submit(true)} className="inline-flex items-center gap-2 rounded-full bg-[#1459d2] px-5 py-2 text-sm font-semibold text-white shadow-sm">
-                <Send className="h-4 w-4" />
-                Publish Timetable
+              <button
+                onClick={createTimetable}
+                disabled={loading || !newEntry.slots.length}
+                className="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Create Timetable Entry
               </button>
             </div>
           </section>
 
-          <section className="rounded-[1.9rem] border border-white/60 bg-white/65 p-5 shadow-[0_22px_55px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
-                <CalendarDays className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Published This Week</p>
-                <h2 className="text-xl font-semibold text-slate-900">Timetable history</h2>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {weeklyRows.map((row) => (
-                <article key={row._id} className="rounded-[1.4rem] border border-slate-200 bg-white/80 p-4">
-                  <div className="flex items-start justify-between gap-3">
+          {/* Existing Timetables */}
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
+            <h2 className="text-base font-semibold">Existing Timetables</h2>
+            <p className="mt-2 text-sm text-slate-600">Manage and edit existing timetable entries</p>
+            
+            <div className="mt-4 space-y-4">
+              {timetables.map((timetable) => (
+                <div key={timetable._id} className="rounded-lg border border-slate-200 p-4">
+                  <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">{row.classLabel}</p>
-                      <p className="text-xs text-slate-500">{formatDate(row.date)}</p>
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${row.isPublished ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                      {row.isPublished ? "Published" : "Draft"}
-                    </span>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    {row.slots.map((slot, index) => (
-                      <div key={`${row._id}_${index}`} className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                        <p className="font-medium">{slot.startTime}{slot.endTime ? ` - ${slot.endTime}` : " onwards"} | {slot.subject}</p>
-                        <p className="text-xs text-slate-500">{slot.teacherName || "No teacher"} • {slot.type}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 grid gap-2">
-                    <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
-                      <input
-                        type="date"
-                        value={duplicateDates[row._id] || ""}
-                        onChange={(e) => setDuplicateDates((current) => ({ ...current, [row._id]: e.target.value }))}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                      />
-                      <button type="button" onClick={() => void duplicateRow(row, false)} className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                        <Copy className="h-4 w-4" />
-                        Duplicate Draft
-                      </button>
-                      <button type="button" onClick={() => void duplicateRow(row, true)} className="inline-flex items-center justify-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                        <Copy className="h-4 w-4" />
-                        Duplicate + Publish
-                      </button>
-                      <button type="button" onClick={() => void exportPdf(row)} className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                        <FileDown className="h-4 w-4" />
-                        Export PDF
-                      </button>
+                      <h3 className="font-semibold">{timetable.classLabel}</h3>
+                      <p className="text-sm text-slate-600">{timetable.date}</p>
+                      <p className="text-xs text-slate-500">Batch: {timetable.batchKey}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => hydrateForm(row)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
+                      <button
+                        onClick={() => setEditingEntry(timetable)}
+                        className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm text-blue-700"
+                      >
                         Edit
                       </button>
-                      <button type="button" onClick={() => void removeTimetableRow(row._id)} className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700">
+                      <button
+                        onClick={() => deleteTimetable(timetable._id)}
+                        className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
+                      >
                         Delete
                       </button>
                     </div>
                   </div>
-                </article>
-              ))}
-
-              {weeklyRows.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-                  No timetable created this week.
+                  
+                  <div className="mt-4 grid grid-cols-1 gap-2">
+                    {timetable.slots.map((slot, index) => (
+                      <div key={index} className="flex justify-between items-center p-2 bg-slate-50 rounded">
+                        <div className="flex gap-4 text-sm">
+                          <span className="font-medium">{slot.startTime} - {slot.endTime || "Onwards"}</span>
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${slot.type === "break" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                            {slot.type.toUpperCase()}
+                          </span>
+                          <span>{slot.subject}</span>
+                          {slot.teacherName && <span className="text-slate-600">by {slot.teacherName}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ) : null}
+              ))}
+              {timetables.length === 0 && (
+                <p className="text-slate-500">No timetables found</p>
+              )}
             </div>
           </section>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-white/70 bg-white/75 p-3 text-sm text-slate-700 shadow-[0_8px_25px_rgba(35,70,140,0.06)]">
-          {message}
-        </div>
+        {/* Edit Modal */}
+        {editingEntry && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+              <h3 className="text-lg font-semibold mb-4">Edit Timetable Entry</h3>
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <input
+                  type="text"
+                  value={editingEntry.classLabel}
+                  onChange={(e) => setEditingEntry(prev => prev ? { ...prev, classLabel: e.target.value } : null)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+                <input
+                  type="date"
+                  value={editingEntry.date}
+                  onChange={(e) => setEditingEntry(prev => prev ? { ...prev, date: e.target.value } : null)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="space-y-4 mb-4">
+                {editingEntry.slots.map((slot, index) => (
+                  <div key={index} className="rounded-lg border border-slate-200 p-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <input
+                        type="time"
+                        value={slot.startTime}
+                        onChange={(e) => setEditingEntry(prev => prev ? {
+                          ...prev,
+                          slots: prev.slots.map((s, i) => i === index ? { ...s, startTime: e.target.value } : s)
+                        } : null)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="time"
+                        value={slot.endTime}
+                        onChange={(e) => setEditingEntry(prev => prev ? {
+                          ...prev,
+                          slots: prev.slots.map((s, i) => i === index ? { ...s, endTime: e.target.value } : s)
+                        } : null)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <select
+                        value={slot.type}
+                        onChange={(e) => setEditingEntry(prev => prev ? {
+                          ...prev,
+                          slots: prev.slots.map((s, i) => i === index ? { ...s, type: e.target.value as any } : s)
+                        } : null)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      >
+                        <option value="lecture">Lecture</option>
+                        <option value="practical">Practical</option>
+                        <option value="break">Break</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+                    
+                    <div className="mt-4 grid grid-cols-2 gap-4">
+                      <input
+                        type="text"
+                        value={slot.subject}
+                        onChange={(e) => setEditingEntry(prev => prev ? {
+                          ...prev,
+                          slots: prev.slots.map((s, i) => i === index ? { ...s, subject: e.target.value } : s)
+                        } : null)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={slot.teacherName}
+                        onChange={(e) => setEditingEntry(prev => prev ? {
+                          ...prev,
+                          slots: prev.slots.map((s, i) => i === index ? { ...s, teacherName: e.target.value } : s)
+                        } : null)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={updateTimetable}
+                  disabled={loading}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Update Timetable
+                </button>
+                <button
+                  onClick={() => setEditingEntry(null)}
+                  className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-sm text-slate-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </DashboardLayout>
     </ProtectedRoute>
   );

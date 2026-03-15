@@ -1,8 +1,9 @@
-FROM python:3.10-slim
+FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
 ENV INSIGHTFACE_HOME=/root/.insightface
+ENV PIP_PREFER_BINARY=1
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -13,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender1 \
     ffmpeg \
+    git \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -22,6 +26,14 @@ RUN pip install --upgrade pip && \
 
 COPY . .
 
-EXPOSE 8000
+# Pre-download the InsightFace model during build to avoid startup timeout
+RUN mkdir -p /root/.insightface/models/buffalo_l && \
+    cd /root/.insightface/models && \
+    wget -O buffalo_l.zip https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip && \
+    unzip -o buffalo_l.zip -d /root/.insightface/models/buffalo_l && \
+    test -f /root/.insightface/models/buffalo_l/det_10g.onnx && \
+    rm buffalo_l.zip
 
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "main:app"]
+EXPOSE 10000
+
+CMD ["gunicorn", "--timeout", "600", "--workers", "1", "--bind", "0.0.0.0:10000", "main:app"]

@@ -1,13 +1,10 @@
-# Node
-node_modules/
+node_modules
 .env
-
-# Python
-__pycache__/
-*.pyc
-venv/
-.env
-
-# OS
+.env.local
+.next
+dist
+build
+coverage
+venv
+__pycache__
 .DS_Store
-Thumbs.db

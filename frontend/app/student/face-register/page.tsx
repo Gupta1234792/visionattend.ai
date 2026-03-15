@@ -12,6 +12,7 @@ export default function StudentFaceRegisterPage() {
   const [waitingForConfirm, setWaitingForConfirm] = useState(false);
   const [statusTag, setStatusTag] = useState<"idle" | "camera" | "opencv" | "retry" | "success">("idle");
   const allowBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
+  const devMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -157,6 +158,20 @@ const getCameraErrorMessage = (error: unknown) => {
     router.push("/student");
   };
 
+  const skipFaceRegistration = () => {
+    if (!devMode) return;
+    const rawUser = localStorage.getItem("va_user");
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      parsed.faceRegistered = true;
+      localStorage.setItem("va_user", JSON.stringify(parsed));
+    }
+    sessionStorage.setItem("va_dev_face_verified", "true");
+    localStorage.setItem("va_dev_face_verified", "true");
+    setMessage("DEV_MODE: Face registration skipped. Redirecting to dashboard...");
+    router.push("/student");
+  };
+
   useEffect(() => {
     const syncFaceStatus = async () => {
       try {
@@ -211,6 +226,11 @@ const getCameraErrorMessage = (error: unknown) => {
             {allowBypass ? (
               <button className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700" type="button" onClick={continueWithBypass}>
                 Manual Access (Dev Mode)
+              </button>
+            ) : null}
+            {devMode ? (
+              <button className="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm font-semibold text-green-700" type="button" onClick={skipFaceRegistration}>
+                Skip Face Registration (DEV_MODE)
               </button>
             ) : null}
           </div>

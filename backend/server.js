@@ -47,8 +47,7 @@ require("./src/sockets/socket")(io);
 server.listen(PORT, async () => {
   console.log(`VisionAttend backend + sockets running on port ${PORT}`);
   const opencvHealth = await checkOpenCvHealth();
-  if (!opencvHealth.ok && String(process.env.OPENCV_FAIL_FAST || "false") === "true") {
-    console.error("OPENCV_FAIL_FAST is true. Shutting down backend.");
-    process.exit(1);
+  if (!opencvHealth.ok) {
+    console.warn("OpenCV health check failed. Face verification may be unavailable.");
   }
 });

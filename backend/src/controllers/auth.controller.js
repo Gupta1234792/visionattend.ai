@@ -7,6 +7,7 @@ const { logAudit } = require("../utils/audit");
 const { getEligibleStudentsForParentEmail, normalizeEmail, syncParentLinksForUser } = require("../utils/parentLinks");
 const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const sendPasswordResetEmail = require("../utils/sendPasswordResetEmail");
+const DEV_MODE = process.env.DEV_MODE === "true";
 
 const register = async (req, res) => {
   try {
@@ -364,6 +365,28 @@ const login = async (req, res) => {
       entityId: user._id,
       metadata: { role: user.role }
     });
+
+    // DEV_MODE: Skip face registration check for students
+    if (user.role === "student" && DEV_MODE) {
+      return res.status(200).json({
+        success: true,
+        message: "Login successful (DEV_MODE)",
+        token,
+        role: user.role,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          college: user.college || null,
+          department: user.department || null,
+          year: user.year || null,
+          division: user.division || null,
+          faceRegistered: true
+        },
+        devMode: true
+      });
+    }
 
     return res.status(200).json({
       success: true,

@@ -22,7 +22,7 @@ services:
     env_file:
       - ./opencv-ai/.env
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:10000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:10000/')"]
       interval: 20s
       timeout: 10s
       retries: 15

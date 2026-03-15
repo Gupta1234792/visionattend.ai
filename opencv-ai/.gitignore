@@ -1,14 +1,7 @@
-# Environment variables
+venv
+__pycache__
+*.pyc
 .env
-.env.*
-
-# Node dependencies
-node_modules/
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS files
+.insightface
+models
 .DS_Store

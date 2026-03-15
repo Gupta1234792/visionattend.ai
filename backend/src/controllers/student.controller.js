@@ -7,6 +7,7 @@ const OPENCV_REGISTER_URL = process.env.OPENCV_REGISTER_URL ||
   (process.env.OPENCV_VERIFY_URL
     ? process.env.OPENCV_VERIFY_URL.replace(/\/verify\/?$/, "/register")
     : "");
+const DEV_MODE = process.env.DEV_MODE === "true";
 
 // ================= VALIDATE STUDENT INVITE =================
 const validateInviteToken = async (req, res) => {
@@ -105,19 +106,22 @@ const registerStudent = async (req, res) => {
       college: invite.college,
       department: invite.department,
       year: invite.year,
-      division: invite.division
+      division: invite.division,
+      // Set initial status to require face registration
+      faceRegisteredAt: null
     });
 
     return res.status(201).json({
       success: true,
-      message: "Student registered successfully",
+      message: "Student registered successfully. Please complete face registration to access dashboard.",
       student: {
         id: student._id,
         name: student.name,
         email: student.email,
         rollNo: student.rollNo,
         year: student.year,
-        division: student.division
+        division: student.division,
+        faceRegistered: false
       }
     });
   } catch (error) {
@@ -141,6 +145,19 @@ const getStudentProfile = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Student not found"
+      });
+    }
+
+    // DEV_MODE: Skip face registration check
+    if (DEV_MODE) {
+      return res.status(200).json({
+        success: true,
+        student: {
+          ...student.toObject(),
+          faceRegistered: true,
+          faceRegisteredAt: new Date().toISOString()
+        },
+        devMode: true
       });
     }
 
@@ -233,6 +250,20 @@ const registerStudentFace = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Student not found"
+      });
+    }
+
+    // DEV_MODE: Skip face registration
+    if (DEV_MODE) {
+      student.faceRegisteredAt = new Date();
+      await student.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Face registration completed (DEV_MODE)",
+        faceRegistered: true,
+        confidence: 1.0,
+        devMode: true
       });
     }
 

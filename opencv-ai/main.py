@@ -17,8 +17,12 @@ LIVENESS_MIN_FRAMES = max(6, int(os.getenv("LIVENESS_MIN_FRAMES", "6")))
 BLINK_MIN_DROP = float(os.getenv("BLINK_MIN_DROP", "0.035"))
 BLINK_RECOVERY_DROP = float(os.getenv("BLINK_RECOVERY_DROP", "0.020"))
 
+print("Loading InsightFace model...")
+
 arcface = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
 arcface.prepare(ctx_id=-1, det_size=(640, 640))
+
+print("InsightFace loaded")
 
 
 def decode_image_payload(image_value):
@@ -30,14 +34,12 @@ def decode_image_payload(image_value):
     else:
         encoded = image_value
 
-    try:
-        binary = base64.b64decode(encoded)
-    except Exception as exc:
-        raise ValueError("Invalid base64 image payload") from exc
-
+    binary = base64.b64decode(encoded)
     frame = cv2.imdecode(np.frombuffer(binary, np.uint8), cv2.IMREAD_COLOR)
+
     if frame is None:
         raise ValueError("Image decode failed")
+
     return frame
 
 
@@ -48,49 +50,61 @@ def decode_frame_sequence(frames_value):
     frames = []
     for item in frames_value:
         frames.append(decode_image_payload(item))
+
     return frames
 
 
 def extract_single_face(frame):
-    detected_faces = arcface.get(frame)
-    if not detected_faces:
+    faces = arcface.get(frame)
+
+    if not faces:
         return None, "No face detected"
-    if len(detected_faces) > 1:
+
+    if len(faces) > 1:
         return None, "Multiple faces detected"
-    return detected_faces[0], None
+
+    return faces[0], None
 
 
-def cosine_similarity(first_embedding, second_embedding):
-    norm_a = np.linalg.norm(first_embedding)
-    norm_b = np.linalg.norm(second_embedding)
+def cosine_similarity(a, b):
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+
     if norm_a == 0 or norm_b == 0:
         return 0.0
-    return float(np.dot(first_embedding, second_embedding) / (norm_a * norm_b))
+
+    return float(np.dot(a, b) / (norm_a * norm_b))
 
 
 def registration_quality(face, frame):
-    det_score = float(getattr(face, "det_score", 0.0) or 0.0)
+    det_score = float(getattr(face, "det_score", 0.0))
+
     bbox = np.array(face.bbox).astype(np.float32)
     width = max(1.0, float(bbox[2] - bbox[0]))
     height = max(1.0, float(bbox[3] - bbox[1]))
-    face_area_ratio = min(1.0, (width * height) / float(frame.shape[0] * frame.shape[1]))
+
+    face_area_ratio = min(1.0, (width * height) / (frame.shape[0] * frame.shape[1]))
     size_score = min(1.0, face_area_ratio * 8.0)
+
     return float(round((det_score * 0.7) + (size_score * 0.3), 4))
 
 
 def crop_eye_region(frame, eye_point, eye_distance):
     half_w = max(8, int(eye_distance * 0.18))
     half_h = max(6, int(eye_distance * 0.12))
-    center_x = int(eye_point[0])
-    center_y = int(eye_point[1])
 
-    left = max(0, center_x - half_w)
-    right = min(frame.shape[1], center_x + half_w)
-    top = max(0, center_y - half_h)
-    bottom = min(frame.shape[0], center_y + half_h)
+    cx = int(eye_point[0])
+    cy = int(eye_point[1])
+
+    left = max(0, cx - half_w)
+    right = min(frame.shape[1], cx + half_w)
+
+    top = max(0, cy - half_h)
+    bottom = min(frame.shape[0], cy + half_h)
 
     if right - left < 8 or bottom - top < 6:
         return None
+
     return frame[top:bottom, left:right]
 
 
@@ -100,13 +114,17 @@ def eye_openness_proxy(frame, keypoints):
 
     left_eye = np.array(keypoints[0], dtype=np.float32)
     right_eye = np.array(keypoints[1], dtype=np.float32)
+
     eye_distance = float(np.linalg.norm(right_eye - left_eye))
-    if eye_distance < 12.0:
+
+    if eye_distance < 12:
         return None
 
-    eye_scores = []
-    for eye_point in (left_eye, right_eye):
-        roi = crop_eye_region(frame, eye_point, eye_distance)
+    scores = []
+
+    for eye in (left_eye, right_eye):
+        roi = crop_eye_region(frame, eye, eye_distance)
+
         if roi is None:
             return None
 
@@ -116,10 +134,12 @@ def eye_openness_proxy(frame, keypoints):
 
         dark_threshold = float(np.percentile(gray, 40))
         dark_ratio = float(np.mean(gray <= dark_threshold))
-        contrast_score = float(np.std(gray) / 128.0)
-        eye_scores.append((dark_ratio * 0.75) + (contrast_score * 0.25))
 
-    return float(np.mean(eye_scores))
+        contrast_score = float(np.std(gray) / 128.0)
+
+        scores.append((dark_ratio * 0.75) + (contrast_score * 0.25))
+
+    return float(np.mean(scores))
 
 
 def analyze_blink_sequence(frames):
@@ -127,22 +147,18 @@ def analyze_blink_sequence(frames):
     signals = []
 
     for frame in frames:
-        face, error_message = extract_single_face(frame)
-        if error_message:
-            return {
-                "ok": False,
-                "message": error_message,
-                "signals": signals,
-                "faces": faces,
-            }
+        face, error = extract_single_face(frame)
+
+        if error:
+            return {"ok": False, "message": error, "signals": signals}
 
         signal = eye_openness_proxy(frame, getattr(face, "kps", None))
+
         if signal is None:
             return {
                 "ok": False,
-                "message": "Eye landmarks not detected clearly. Keep face straight and retry.",
+                "message": "Eye landmarks not detected clearly",
                 "signals": signals,
-                "faces": faces,
             }
 
         faces.append(face)
@@ -150,10 +166,14 @@ def analyze_blink_sequence(frames):
 
     min_index = int(np.argmin(signals))
     min_signal = float(signals[min_index])
+
     before_open = max(signals[:min_index], default=min_signal)
-    after_open = max(signals[min_index + 1 :], default=min_signal)
+    after_open = max(signals[min_index + 1:], default=min_signal)
+
     best_open = max(before_open, after_open, min_signal)
+
     blink_drop = best_open - min_signal
+
     blink_detected = (
         0 < min_index < len(signals) - 1
         and blink_drop >= BLINK_MIN_DROP
@@ -163,73 +183,53 @@ def analyze_blink_sequence(frames):
 
     return {
         "ok": blink_detected,
-        "message": "Blink detected" if blink_detected else "Blink not detected. Keep face steady and blink once.",
-        "signals": [round(value, 4) for value in signals],
+        "signals": [round(v, 4) for v in signals],
         "faces": faces,
-        "blinkIndex": min_index,
         "blinkDrop": round(blink_drop, 4),
     }
 
 
 @app.get("/")
 def home():
-    return {"success": True, "message": "VisionAttend OpenCV service running"}
+    return {"success": True, "message": "VisionAttend OpenCV AI running"}
 
 
 @app.get("/health")
 def health():
-    return {
-        "success": True,
-        "status": "healthy",
-        "matchThreshold": MATCH_THRESHOLD,
-        "livenessMinFrames": LIVENESS_MIN_FRAMES,
-    }
+    return {"success": True, "status": "healthy"}
 
 
 @app.post("/register")
 def register_face():
-    payload = request.get_json(silent=True) or {}
-    user_id = str(payload.get("userId") or "").strip()
-    image_value = payload.get("image")
+    data = request.get_json()
+
+    user_id = str(data.get("userId", "")).strip()
+    image = data.get("image")
 
     if not user_id:
-        return jsonify({"success": False, "message": "userId is required"}), 400
+        return jsonify({"success": False, "message": "userId required"}), 400
 
-    try:
-        frame = decode_image_payload(image_value)
-    except ValueError as exc:
-        return jsonify({"success": False, "message": str(exc)}), 400
+    frame = decode_image_payload(image)
 
-    face, error_message = extract_single_face(frame)
-    if error_message:
-        return jsonify({"success": False, "message": error_message}), 400
+    face, error = extract_single_face(frame)
+
+    if error:
+        return jsonify({"success": False, "message": error}), 400
 
     confidence = registration_quality(face, frame)
+
     if confidence < REGISTER_THRESHOLD:
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "message": "Face quality too low. Keep face centered and retry.",
-                    "confidence": confidence,
-                }
-            ),
-            403,
-        )
+        return jsonify({"success": False, "message": "Face quality too low"}), 403
 
     embedding = face.embedding
     now = time.time()
+
     faces_col.delete_many({"userId": user_id})
+
     faces_col.insert_one(
         {
             "userId": user_id,
-            "collegeId": str(payload.get("collegeId") or ""),
-            "departmentId": str(payload.get("departmentId") or ""),
-            "year": str(payload.get("year") or ""),
-            "division": str(payload.get("division") or ""),
             "embedding": embedding.tolist(),
-            "model": "arcface_buffalo_l",
-            "dim": int(len(embedding)),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -239,7 +239,6 @@ def register_face():
         {
             "success": True,
             "message": "Face registered",
-            "matched": True,
             "confidence": confidence,
         }
     )
@@ -247,61 +246,51 @@ def register_face():
 
 @app.post("/verify")
 def verify_face():
-    payload = request.get_json(silent=True) or {}
-    user_id = str(payload.get("userId") or "").strip()
-    frames_value = payload.get("frames")
+    data = request.get_json()
+
+    user_id = str(data.get("userId", "")).strip()
+    frames_value = data.get("frames")
 
     if not user_id:
-        return jsonify({"success": False, "message": "userId is required"}), 400
+        return jsonify({"success": False, "message": "userId required"}), 400
 
-    try:
-        frames = decode_frame_sequence(frames_value)
-    except ValueError as exc:
-        return jsonify({"success": False, "message": str(exc)}), 400
+    frames = decode_frame_sequence(frames_value)
 
     blink_result = analyze_blink_sequence(frames)
-    if not blink_result["ok"]:
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "matched": False,
-                    "confidence": 0.0,
-                    "livenessPassed": False,
-                    "blinkDetected": False,
-                    "blinkSignals": blink_result["signals"],
-                    "message": blink_result["message"],
-                }
-            ),
-            403,
-        )
 
-    stored_face = faces_col.find_one({"userId": user_id})
-    if not stored_face or "embedding" not in stored_face:
+    if not blink_result["ok"]:
+        return jsonify(
+            {
+                "success": False,
+                "livenessPassed": False,
+                "blinkSignals": blink_result["signals"],
+            }
+        ), 403
+
+    stored = faces_col.find_one({"userId": user_id})
+
+    if not stored:
         return jsonify({"success": False, "message": "Face not registered"}), 404
 
-    stored_embedding = np.array(stored_face["embedding"], dtype=np.float32)
-    scores = [cosine_similarity(face.embedding, stored_embedding) for face in blink_result["faces"]]
-    score = max(scores) if scores else 0.0
+    stored_embedding = np.array(stored["embedding"], dtype=np.float32)
+
+    scores = [
+        cosine_similarity(face.embedding, stored_embedding)
+        for face in blink_result["faces"]
+    ]
+
+    score = max(scores)
     matched = score >= MATCH_THRESHOLD
 
-    response_code = 200 if matched else 403
-    return (
-        jsonify(
-            {
-                "success": matched,
-                "matched": matched,
-                "confidence": score,
-                "livenessPassed": True,
-                "blinkDetected": True,
-                "blinkSignals": blink_result["signals"],
-                "blinkDrop": blink_result["blinkDrop"],
-                "message": "Face matched" if matched else "Face not recognized",
-            }
-        ),
-        response_code,
-    )
+    return jsonify(
+        {
+            "success": matched,
+            "confidence": score,
+            "livenessPassed": True,
+            "blinkSignals": blink_result["signals"],
+        }
+    ), (200 if matched else 403)
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=8000)

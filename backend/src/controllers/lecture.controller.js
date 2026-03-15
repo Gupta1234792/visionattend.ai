@@ -370,8 +370,213 @@ const updateLectureStatus = async (req, res, status) => {
   }
 };
 
-const startLecture = async (req, res) => updateLectureStatus(req, res, "LIVE");
-const endLecture = async (req, res) => updateLectureStatus(req, res, "ENDED");
+const startLecture = async (req, res) => {
+  try {
+    const lecture = await OnlineLecture.findById(req.params.lectureId);
+    if (!lecture) {
+      return res.status(404).json({ success: false, message: "Lecture not found" });
+    }
+
+    const canManage = canManageLecture(req.user, lecture);
+    if (!canManage) {
+      if (["teacher", "coordinator"].includes(req.user.role)) {
+        const batch = parseBatch(lecture.batchId);
+        if (!batch || !req.user.department || batch.department.toString() !== req.user.department.toString()) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      } else {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+    }
+
+    lecture.status = "LIVE";
+    lecture.startedAt = new Date();
+    await lecture.save();
+
+    // Check if this lecture matches today's manual timetable
+    const batch = parseBatch(lecture.batchId);
+    if (batch) {
+      const today = new Date().toISOString().split('T')[0];
+      const Timetable = require("../models/Timetable.model");
+      const todayTimetable = await Timetable.findOne({
+        college: lecture.collegeId,
+        batchKey: `${batch.year}_${batch.division}`,
+        date: today,
+        isActive: true
+      }).populate("slots.teacherId", "name email");
+
+      let linkedSlot = null;
+      if (todayTimetable) {
+        // Find matching slot in today's timetable
+        const lectureTime = new Date(lecture.scheduledAt);
+        const lectureHour = lectureTime.getHours();
+        const lectureMinute = lectureTime.getMinutes();
+
+        linkedSlot = todayTimetable.slots.find(slot => {
+          const slotStart = new Date(`2024-01-01 ${slot.startTime}`);
+          const slotEnd = slot.endTime ? new Date(`2024-01-01 ${slot.endTime}`) : null;
+          
+          // Check if lecture time falls within slot time
+          const lectureTimeMatch = slotStart.getHours() === lectureHour && 
+                                   slotStart.getMinutes() === lectureMinute;
+          
+          // Check if subject matches (simplified check without async)
+          const subjectMatch = slot.subject && lecture.title.toLowerCase().includes(slot.subject.toLowerCase());
+
+          return lectureTimeMatch && subjectMatch;
+        });
+      }
+
+      // Send real-time notification to all students in the batch
+      const students = await User.find({
+        role: "student",
+        college: lecture.collegeId,
+        department: batch.department,
+        year: batch.year,
+        division: batch.division,
+        isActive: true
+      }).select("_id");
+
+      if (students.length) {
+        const now = new Date();
+        await Notification.insertMany(
+          students.map((student) => ({
+            userId: student._id,
+            collegeId: lecture.collegeId,
+            batchId: lecture.batchId,
+            type: "GENERAL",
+            title: "Teacher started live lecture",
+            message: `${lecture.title} is live now. Join immediately.`,
+            relatedId: lecture._id,
+            status: "delivered",
+            deliveredAt: now
+          }))
+        );
+      }
+
+      // Emit real-time event for live class banner with timetable integration
+      emitToCollegeRoom(
+        String(lecture.collegeId || ""),
+        `batch_${lecture.batchId}`,
+        "live_class_started",
+        {
+          lectureId: String(lecture._id),
+          batchId: lecture.batchId,
+          title: lecture.title,
+          subject: lecture.subjectId,
+          teacher: lecture.teacherId,
+          meetingRoomId: lecture.meetingRoomId,
+          meetingLink: resolveMeetingLink(lecture),
+          startedAt: lecture.startedAt,
+          linkedTimetableSlot: linkedSlot ? {
+            startTime: linkedSlot.startTime,
+            endTime: linkedSlot.endTime,
+            subject: linkedSlot.subject,
+            teacherName: linkedSlot.teacherName,
+            type: linkedSlot.type
+          } : null,
+          isTimetableMatch: !!linkedSlot
+        }
+      );
+    }
+
+    await logAudit({
+      actor: req.user,
+      module: "lecture",
+      action: "START",
+      entityType: "OnlineLecture",
+      entityId: lecture._id,
+      metadata: { 
+        batchId: lecture.batchId,
+        linkedTimetableSlot: linkedSlot ? linkedSlot._id : null
+      }
+    });
+
+    triggerWebhookEvent({
+      event: "lecture.live.started",
+      collegeId: lecture.collegeId,
+      payload: {
+        event: "lecture.live.started",
+        lectureId: String(lecture._id),
+        title: lecture.title,
+        batchId: lecture.batchId,
+        meetingRoomId: lecture.meetingRoomId,
+        meetingLink: resolveMeetingLink(lecture),
+        status: "LIVE",
+        startedAt: lecture.startedAt ? new Date(lecture.startedAt).toISOString() : null,
+        linkedTimetableSlot: linkedSlot ? linkedSlot._id : null
+      }
+    }).catch((webhookError) => {
+      console.error("lecture.live.started webhook error:", webhookError);
+    });
+
+    return res.json({ success: true, lecture });
+  } catch (error) {
+    console.error("startLecture error:", error);
+    return res.status(500).json({ success: false, message: "Failed to start lecture" });
+  }
+};
+
+const endLecture = async (req, res) => {
+  try {
+    const lecture = await OnlineLecture.findById(req.params.lectureId);
+    if (!lecture) {
+      return res.status(404).json({ success: false, message: "Lecture not found" });
+    }
+
+    const canManage = canManageLecture(req.user, lecture);
+    if (!canManage) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    lecture.status = "ENDED";
+    lecture.endedAt = new Date();
+    await lecture.save();
+
+    // Emit real-time event to remove live class banner
+    emitToCollegeRoom(
+      String(lecture.collegeId || ""),
+      `batch_${lecture.batchId}`,
+      "live_class_ended",
+      {
+        lectureId: String(lecture._id),
+        batchId: lecture.batchId,
+        endedAt: lecture.endedAt
+      }
+    );
+
+    await logAudit({
+      actor: req.user,
+      module: "lecture",
+      action: "END",
+      entityType: "OnlineLecture",
+      entityId: lecture._id,
+      metadata: { batchId: lecture.batchId }
+    });
+
+    triggerWebhookEvent({
+      event: "lecture.live.ended",
+      collegeId: lecture.collegeId,
+      payload: {
+        event: "lecture.live.ended",
+        lectureId: String(lecture._id),
+        title: lecture.title,
+        batchId: lecture.batchId,
+        meetingRoomId: lecture.meetingRoomId,
+        meetingLink: resolveMeetingLink(lecture),
+        status: "ENDED",
+        endedAt: lecture.endedAt ? new Date(lecture.endedAt).toISOString() : null
+      }
+    }).catch((webhookError) => {
+      console.error("lecture.live.ended webhook error:", webhookError);
+    });
+
+    return res.json({ success: true, lecture });
+  } catch (error) {
+    console.error("endLecture error:", error);
+    return res.status(500).json({ success: false, message: "Failed to end lecture" });
+  }
+};
 
 const joinLecture = async (req, res) => {
   try {
@@ -443,6 +648,58 @@ const leaveLecture = async (req, res) => {
   }
 };
 
+const getActiveLecture = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    if (!batchId) {
+      return res.status(400).json({ success: false, message: "batchId is required" });
+    }
+
+    // Check if user has access to this batch
+    if (req.user.role === "student" || req.user.role === "parent") {
+      const ownBatchId = `${req.user.department}_${req.user.year}_${req.user.division}`;
+      if (ownBatchId !== batchId) {
+        return res.status(403).json({ success: false, message: "Access denied for this batch" });
+      }
+    }
+
+    // Calculate expected end time to filter out expired lectures
+    const lecture = await OnlineLecture.findOne({
+      collegeId: req.user.college,
+      batchId,
+      status: "LIVE",
+      // Ensure lecture has actually started
+      scheduledAt: { $lte: new Date() },
+      $or: [
+        // If endedAt exists, it should be in the future
+        { endedAt: { $exists: false } },
+        { endedAt: { $gt: new Date() } }
+      ]
+    })
+    .populate("teacherId", "name email")
+    .populate("subjectId", "name code")
+    .lean();
+
+    if (!lecture) {
+      return res.json({ success: true, lecture: null, message: "No active lecture found" });
+    }
+
+    // Resolve meeting link
+    const meetingLink = resolveMeetingLink(lecture);
+
+    return res.json({ 
+      success: true, 
+      lecture: {
+        ...lecture,
+        meetingLink
+      }
+    });
+  } catch (error) {
+    console.error("getActiveLecture error:", error);
+    return res.status(500).json({ success: false, message: "Failed to get active lecture" });
+  }
+};
+
 module.exports = {
   scheduleLecture,
   listMyLectures,
@@ -450,5 +707,6 @@ module.exports = {
   startLecture,
   endLecture,
   joinLecture,
-  leaveLecture
+  leaveLecture,
+  getActiveLecture
 };
