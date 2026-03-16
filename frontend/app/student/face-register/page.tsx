@@ -119,24 +119,15 @@ export default function StudentFaceRegisterPage() {
         return;
       }
 
-      const res = await api.post("/students/face-register", { image });
+      // Add timeout protection for API call
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
-      if (res.data?.success && res.data?.faceRegistered) {
-        const rawUser = localStorage.getItem("va_user");
-        if (rawUser) {
-          const parsed = JSON.parse(rawUser);
-          parsed.faceRegistered = true;
-          localStorage.setItem("va_user", JSON.stringify(parsed));
-        }
-        setMessage("Face registration completed successfully!");
-        setStatusTag("success");
-        pushToast("Face registration completed successfully!", "success");
-        closeCamera();
-        setTimeout(() => {
-          router.push("/student");
-        }, 1000);
-        return;
-      }
+      const res = await api.post("/students/face-register", { image }, {
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
 
       if (res.data?.success) {
         const rawUser = localStorage.getItem("va_user");
@@ -150,8 +141,16 @@ export default function StudentFaceRegisterPage() {
         pushToast("Face registration completed successfully!", "success");
         closeCamera();
         setTimeout(() => {
-          router.push("/student");
+          router.push("/student/dashboard");
         }, 1000);
+        return;
+      }
+
+      // Handle duplicate face registration error
+      if (res.data?.message === "Face already registered with another account") {
+        setMessage("Face already registered with another account. Please use a different face or contact support.");
+        setStatusTag("retry");
+        pushToast("Face already registered with another account", "error");
         return;
       }
 
@@ -169,6 +168,9 @@ export default function StudentFaceRegisterPage() {
       } else if (msg.toLowerCase().includes("opencv") || msg.toLowerCase().includes("service")) {
         setStatusTag("opencv");
         pushToast("OpenCV service is temporarily unavailable. Please try again.", "error");
+      } else if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("already registered")) {
+        setStatusTag("retry");
+        pushToast("Face already registered with another account", "error");
       } else {
         pushToast(msg, "error");
       }

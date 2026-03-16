@@ -17,6 +17,11 @@ const attendanceOverview = async (req, res) => {
     const { from } = getDateRange(days);
     const collegeId = req.user.college;
 
+    // Security check: Only admin and HOD can access analytics
+    if (!req.user.role || (req.user.role !== "admin" && req.user.role !== "hod")) {
+      return res.status(403).json({ success: false, message: "Unauthorized access to analytics" });
+    }
+
     const studentFilter = {
       role: "student",
       isActive: true
@@ -52,10 +57,21 @@ const attendanceOverview = async (req, res) => {
     const subjects = await Subject.find(subjectFilter).select("_id name code teacher department").lean();
     const subjectIds = subjects.map((s) => s._id);
 
+    // Use aggregation for better performance with large datasets
     const sessionFilter = {
       createdAt: { $gte: from },
       subject: { $in: subjectIds }
     };
+    
+    // Create indexes if they don't exist (this is a one-time operation)
+    try {
+      await AttendanceSession.collection.createIndex({ createdAt: 1, subject: 1 });
+      await AttendanceRecord.collection.createIndex({ session: 1, student: 1 });
+    } catch (indexError) {
+      // Index creation might fail if indexes already exist, which is fine
+      console.warn("Index creation warning:", indexError.message);
+    }
+
     const sessions = await AttendanceSession.find(sessionFilter).select("_id subject batchKey date").lean();
     const sessionIds = sessions.map((s) => s._id);
 

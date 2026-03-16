@@ -32,9 +32,10 @@ const timetableRoutes = require("./routes/timetable.routes");
 const webhookRoutes = require("./routes/webhook.routes");
 const { authRateLimit, inviteRateLimit, attendanceRateLimit } = require("./middlewares/rateLimit.middleware");
 const { checkOpenCvHealth } = require("./startup/opencv");
+const { loadFaceCache } = require("./utils/faceCache");
 
 const app = express();
-const FRONTEND_URLS = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000")
+const FRONTEND_URLS = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.6:3000")
   .split(",")
   .map((url) => url.trim())
   .filter(Boolean);
@@ -50,13 +51,20 @@ const isAllowedOrigin = (origin) =>
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || isAllowedOrigin(origin)) {
+    // Allow all origins for development
+    if (!origin || process.env.DEV_MODE === 'true') {
+      callback(null, true);
+      return;
+    }
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
       return;
     }
     callback(new Error(`CORS blocked for origin: ${origin}`));
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(express.json());
 app.use(morgan("dev"));
@@ -78,6 +86,7 @@ app.use("/api/classroom", classroomRoutes);
 app.use("/api/lectures", lectureRoutes);
 app.use("/api/lectures", lectureSchedulerRoutes);
 app.use("/api/timetables", timetableGeneratorRoutes);
+app.use("/api/timetables", timetableRoutes);
 app.use("/api/anomalies", anomalyDetectionRoutes);
 app.use("/api/ptm", ptmRoutes);
 app.use("/api/events", eventRoutes);
@@ -113,5 +122,33 @@ app.get("/health/opencv", async (req, res) => {
     ...report
   });
 });
+
+// Initialize face cache on server start
+(async () => {
+  try {
+    const { loadFaceCache } = require("./utils/faceCache");
+    await loadFaceCache();
+    console.log("Face cache initialized on server start");
+  } catch (error) {
+    console.error("Failed to initialize face cache:", error);
+  }
+})();
+
+// Create database indexes for performance optimization
+(async () => {
+  try {
+    const AttendanceSession = require("./models/AttendanceSession.model");
+    const AttendanceRecord = require("./models/AttendanceRecord.model");
+    
+    await AttendanceSession.collection.createIndex({ createdAt: 1, subject: 1 });
+    await AttendanceRecord.collection.createIndex({ session: 1, student: 1 });
+    await AttendanceSession.collection.createIndex({ batchKey: 1, startTime: 1 });
+    await AttendanceRecord.collection.createIndex({ student: 1, session: 1 });
+    
+    console.log("Database indexes created successfully");
+  } catch (error) {
+    console.warn("Index creation warning:", error.message);
+  }
+})();
 
 module.exports = app;

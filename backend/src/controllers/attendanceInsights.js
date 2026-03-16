@@ -47,6 +47,15 @@ async function buildAttendanceInsightsForStudent(student) {
   const todayKey = dateKey(today);
   const fromDate = startOfDay(new Date(today.getTime() - YEAR_RANGE_DAYS * 24 * 60 * 60 * 1000));
 
+  // Create indexes for better performance
+  try {
+    await AttendanceSession.collection.createIndex({ batchKey: 1, startTime: 1 });
+    await AttendanceRecord.collection.createIndex({ student: 1, session: 1 });
+  } catch (indexError) {
+    // Index creation might fail if indexes already exist, which is fine
+    console.warn("Index creation warning:", indexError.message);
+  }
+
   const sessions = await AttendanceSession.find({
     batchKey,
     isActive: { $in: [true, false] },

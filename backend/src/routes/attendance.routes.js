@@ -4,6 +4,7 @@ const router = express.Router();
 const authMiddleware = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
 const opencvAuth = require("../middlewares/opencvAuth.middleware");
+const requireFaceRegistration = require("../middlewares/requireFaceRegistration");
 
 const {
   startAttendanceSession,
@@ -38,6 +39,7 @@ router.post(
   "/mark",
   authMiddleware,
   roleMiddleware("student"),
+  requireFaceRegistration,
   markAttendance
 );
 
@@ -45,6 +47,7 @@ router.post(
   "/scan-face",
   authMiddleware,
   roleMiddleware("student"),
+  requireFaceRegistration,
   scanFaceAndMarkAttendance
 );
 
@@ -61,6 +64,7 @@ router.post(
   "/mark-class",
   authMiddleware,
   roleMiddleware("student"),
+  requireFaceRegistration,
   markClassAttendance
 );
 
@@ -69,6 +73,7 @@ router.post(
   "/scan-face-class",
   authMiddleware,
   roleMiddleware("student"),
+  requireFaceRegistration,
   scanFaceAndMarkClassAttendance
 );
 

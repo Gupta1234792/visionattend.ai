@@ -2,6 +2,7 @@ const User = require("../models/User.model");
 const StudentInvite = require("../models/StudentInvite.model");
 const { hashPassword } = require("../utils/password");
 const { triggerWebhookEvent } = require("../utils/webhooks");
+const { updateFaceCache } = require("../utils/faceCache");
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.7;
 const OPENCV_REGISTER_URL = process.env.OPENCV_REGISTER_URL ||
   (process.env.OPENCV_VERIFY_URL
@@ -246,6 +247,7 @@ const registerStudentFace = async (req, res) => {
     }
 
     const student = await User.findById(req.user._id);
+
     if (!student || student.role !== "student") {
       return res.status(404).json({
         success: false,
@@ -253,7 +255,7 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    // DEV_MODE: Skip face registration
+    // DEV MODE
     if (DEV_MODE) {
       student.faceRegisteredAt = new Date();
       await student.save();
@@ -262,8 +264,7 @@ const registerStudentFace = async (req, res) => {
         success: true,
         message: "Face registration completed (DEV_MODE)",
         faceRegistered: true,
-        confidence: 1.0,
-        devMode: true
+        confidence: 1.0
       });
     }
 
@@ -282,10 +283,14 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     const registerRes = await fetch(OPENCV_REGISTER_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-opencv-key": process.env.OPENCV_API_KEY || ""
       },
       body: JSON.stringify({
         userId: String(student._id),
@@ -294,11 +299,16 @@ const registerStudentFace = async (req, res) => {
         year: student.year || "",
         division: student.division || "",
         image
-      })
+      }),
+      signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
+
     const registerData = await registerRes.json().catch(() => ({}));
+
     const confidenceValue = Number(registerData?.confidence);
+    const embedding = registerData?.embedding;
 
     if (
       !registerRes.ok ||
@@ -316,6 +326,18 @@ const registerStudentFace = async (req, res) => {
     student.faceRegisteredAt = new Date();
     await student.save();
 
+    /* 🔥 CRITICAL CACHE FIX */
+    try {
+      if (Array.isArray(embedding)) {
+        updateFaceCache(student._id.toString(), embedding);
+        console.log("Face cache updated:", student._id);
+      } else {
+        console.warn("Embedding missing from OpenCV response. Cache not updated.");
+      }
+    } catch (cacheError) {
+      console.warn("Face cache update error:", cacheError.message);
+    }
+
     triggerWebhookEvent({
       event: "student.face.registered",
       collegeId: student.college,
@@ -326,7 +348,7 @@ const registerStudentFace = async (req, res) => {
         year: student.year || "",
         division: student.division || "",
         confidence: confidenceValue,
-        registeredAt: student.faceRegisteredAt?.toISOString?.() || new Date(student.faceRegisteredAt).toISOString()
+        registeredAt: student.faceRegisteredAt.toISOString()
       }
     }).catch((webhookError) => {
       console.error("student.face.registered webhook error:", webhookError);
@@ -338,8 +360,17 @@ const registerStudentFace = async (req, res) => {
       faceRegistered: true,
       confidence: confidenceValue
     });
+
   } catch (error) {
     console.error("Register student face error:", error);
+
+    if (error.name === "AbortError") {
+      return res.status(504).json({
+        success: false,
+        message: "Face registration timeout"
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Failed to register face"

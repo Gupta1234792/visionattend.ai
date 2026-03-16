@@ -5,10 +5,12 @@ import time
 import cv2
 import numpy as np
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 from utils.mongo import faces as faces_col
 
 app = Flask(__name__)
+CORS(app)
 
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.65"))
 REGISTER_THRESHOLD = float(os.getenv("REGISTER_THRESHOLD", "0.70"))
@@ -80,6 +82,29 @@ def cosine_similarity(a, b):
         return 0.0
 
     return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+def check_duplicate_face(embedding, user_id):
+    """Check if face embedding already exists for a different user"""
+    threshold = 0.65
+    
+    # Find all faces except current user
+    existing_faces = list(faces_col.find({"userId": {"$ne": user_id}}))
+    
+    if not existing_faces:
+        return False, None
+    
+    # Convert to numpy arrays for comparison
+    current_embedding = np.array(embedding, dtype=np.float32)
+    
+    for face in existing_faces:
+        stored_embedding = np.array(face["embedding"], dtype=np.float32)
+        similarity = cosine_similarity(current_embedding, stored_embedding)
+        
+        if similarity > threshold:
+            return True, face["userId"]
+    
+    return False, None
 
 
 def registration_quality(face, frame):
@@ -205,6 +230,11 @@ def health():
     return {"success": True, "status": "healthy"}
 
 
+@app.get("/register")
+def register_health():
+    return {"success": True, "message": "Register endpoint ready"}
+
+
 @app.post("/register")
 def register_face():
     data = request.get_json()
@@ -228,6 +258,15 @@ def register_face():
         return jsonify({"success": False, "message": "Face quality too low"}), 403
 
     embedding = face.embedding
+    
+    # Check for duplicate face registration
+    is_duplicate, existing_user = check_duplicate_face(embedding, user_id)
+    if is_duplicate:
+        return jsonify({
+            "success": False,
+            "message": "Face already registered with another account"
+        }), 403
+
     now = time.time()
 
     faces_col.delete_many({"userId": user_id})
@@ -287,6 +326,8 @@ def verify_face():
 
     score = max(scores)
     matched = score >= MATCH_THRESHOLD
+
+    print(f"Face verification: userId={user_id}, similarity={score}, matched={matched}")
 
     return jsonify(
         {

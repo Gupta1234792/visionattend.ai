@@ -10,6 +10,7 @@ const getBatchKey = require("../utils/batchKey");
 const { logAudit } = require("../utils/audit");
 const { emitToCollegeRoom } = require("../sockets/gateway");
 const { triggerWebhookEvent } = require("../utils/webhooks");
+const { getFaceEmbedding, refreshCacheIfNeeded, cosineSimilarity } = require("../utils/faceCache");
 
 const ATTENDANCE_LIMIT_MINUTES = 10;
 const FACE_CONFIDENCE_THRESHOLD = 0.65;
@@ -21,6 +22,7 @@ const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
 const OPENCV_VERIFY_URL = process.env.OPENCV_VERIFY_URL || "";
 const ALLOW_STUDENT_MANUAL_BYPASS = String(process.env.ALLOW_STUDENT_MANUAL_BYPASS || "false") === "true";
 const LIVE_SCAN_MIN_FRAMES = 6;
+const FACE_SIMILARITY_THRESHOLD = 0.65;
 
 const getToday = () => new Date().toISOString().split("T")[0];
 
@@ -643,6 +645,10 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       });
     }
 
+    // Add timeout protection for OpenCV request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
     if (!OPENCV_VERIFY_URL) {
       return res.status(503).json({
         success: false,
@@ -725,15 +731,19 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     const opencvRes = await fetch(OPENCV_VERIFY_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-opencv-key": process.env.OPENCV_API_KEY || ""
       },
       body: JSON.stringify({
         userId: String(req.user._id),
         subjectId: String(session.subject),
         image: frames[frames.length - 1],
         frames
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     const opencvData = await opencvRes.json().catch(() => ({}));
     const confidenceValue = Number(opencvData?.confidence);
@@ -1018,7 +1028,7 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    console.error(err);
+    console.error("Attendance marking error:", err);
     res.status(500).json({
       success: false,
       message: "Failed to mark attendance"
@@ -1126,15 +1136,16 @@ const markAttendanceViaFace = async (req, res) => {
       });
     }
 
+    // Check for duplicate attendance
     const already = await AttendanceRecord.findOne({
       student: finalUserId,
       classKey
     });
 
     if (already) {
-      return res.json({
-        success: true,
-        message: "Attendance already marked"
+      return res.status(409).json({
+        success: false,
+        message: "Attendance already marked today"
       });
     }
 

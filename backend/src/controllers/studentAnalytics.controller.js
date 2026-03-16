@@ -2,6 +2,11 @@ const { buildAttendanceInsightsForStudent } = require("./attendanceInsights");
 
 const getStudentAnalytics = async (req, res) => {
   try {
+    // Security check: Only students can access their own analytics
+    if (!req.user.role || req.user.role !== "student") {
+      return res.status(403).json({ success: false, message: "Unauthorized access to student analytics" });
+    }
+
     const payload = await buildAttendanceInsightsForStudent(req.user);
 
     return res.json({

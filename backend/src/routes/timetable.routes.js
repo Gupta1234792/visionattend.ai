@@ -1,122 +1,25 @@
 const express = require("express");
-
-const authMiddleware = require("../middlewares/auth.middleware");
-const roleMiddleware = require("../middlewares/role.middleware");
-const {
-  createTimetable,
-  updateTimetable,
-  duplicateTimetable,
-  listTimetableTemplates,
-  createTimetableTemplate,
-  updateTimetableTemplate,
-  deleteTimetableTemplate,
-  applyTimetableTemplate,
-  bulkApplyTimetableTemplates,
-  deleteTimetable,
-  getClassTimetable,
-  getTeacherTimetable,
-  getBatchWeeklyTimetable,
-  exportTimetablePdf
+const { 
+  createTimetable, 
+  updateTimetable, 
+  deleteTimetable, 
+  getTodaysTimetable, 
+  getTimetableByDate, 
+  getBatchTimetables 
 } = require("../controllers/timetable.controller");
+const { auth } = require("../middlewares/auth.middleware");
+const { role } = require("../middlewares/role.middleware");
 
 const router = express.Router();
 
-router.post(
-  "/create",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  createTimetable
-);
+// Coordinator routes - require coordinator role
+router.post("/create", auth, role("coordinator"), createTimetable);
+router.put("/update/:id", auth, role("coordinator"), updateTimetable);
+router.delete("/delete/:id", auth, role("coordinator"), deleteTimetable);
 
-router.put(
-  "/update/:timetableId",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  updateTimetable
-);
-
-router.post(
-  "/duplicate/:timetableId",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  duplicateTimetable
-);
-
-router.get(
-  "/templates",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  listTimetableTemplates
-);
-
-router.post(
-  "/templates",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  createTimetableTemplate
-);
-
-router.put(
-  "/templates/:templateId",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  updateTimetableTemplate
-);
-
-router.delete(
-  "/templates/:templateId",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  deleteTimetableTemplate
-);
-
-router.post(
-  "/templates/:templateId/apply",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  applyTimetableTemplate
-);
-
-router.post(
-  "/templates/bulk-apply",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  bulkApplyTimetableTemplates
-);
-
-router.delete(
-  "/delete/:timetableId",
-  authMiddleware,
-  roleMiddleware("coordinator"),
-  deleteTimetable
-);
-
-router.get(
-  "/class/:classKey",
-  authMiddleware,
-  roleMiddleware("student", "teacher", "coordinator", "admin", "hod", "parent"),
-  getClassTimetable
-);
-
-router.get(
-  "/teacher/:teacherId",
-  authMiddleware,
-  roleMiddleware("teacher", "coordinator", "admin", "hod"),
-  getTeacherTimetable
-);
-
-router.get(
-  "/weekly",
-  authMiddleware,
-  roleMiddleware("student", "teacher", "coordinator", "admin", "hod", "parent"),
-  getBatchWeeklyTimetable
-);
-
-router.get(
-  "/export/:timetableId/pdf",
-  authMiddleware,
-  roleMiddleware("coordinator", "teacher", "admin", "hod"),
-  exportTimetablePdf
-);
+// Public routes - accessible to all authenticated users
+router.get("/today/:batchId", auth, getTodaysTimetable);
+router.get("/date/:batchId/:date", auth, getTimetableByDate);
+router.get("/batch/:batchId", auth, getBatchTimetables);
 
 module.exports = router;

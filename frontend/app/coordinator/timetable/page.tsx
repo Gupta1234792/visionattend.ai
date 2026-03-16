@@ -117,6 +117,24 @@ export default function CoordinatorTimetablePage() {
     }));
   };
 
+  const validateSlot = (slot: TimetableSlot, index: number) => {
+    const errors: string[] = [];
+    
+    if (!slot.startTime) {
+      errors.push(`Slot ${index + 1}: Start time is required`);
+    }
+    
+    if (!slot.subject && slot.type !== "break") {
+      errors.push(`Slot ${index + 1}: Subject is required for non-break slots`);
+    }
+    
+    if (slot.type !== "break" && !slot.teacherName) {
+      errors.push(`Slot ${index + 1}: Teacher name is required for non-break slots`);
+    }
+    
+    return errors;
+  };
+
   const removeSlot = (index: number) => {
     setNewEntry(prev => ({
       ...prev,
@@ -134,14 +152,32 @@ export default function CoordinatorTimetablePage() {
   };
 
   const createTimetable = async () => {
-    if (!newEntry.classLabel || !newEntry.date || !newEntry.department || !newEntry.slots.length) {
+    if (!newEntry.classLabel || !newEntry.date || !newEntry.year || !newEntry.division || !newEntry.slots.length) {
       pushToast("Please fill all required fields", "error");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await api.post("/timetables/manual", newEntry);
+      const payload = {
+        classLabel: newEntry.classLabel,
+        year: newEntry.year,
+        division: newEntry.division,
+        date: newEntry.date,
+        slots: newEntry.slots.map(slot => ({
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          subject: slot.subject,
+          teacherName: slot.teacherName,
+          teacherId: slot.teacherId,
+          type: slot.type,
+          notes: slot.notes,
+          order: slot.order
+        })),
+        isPublished: true
+      };
+
+      const res = await api.post("/timetable/create", payload);
       pushToast("Timetable created successfully", "success");
       loadTimetables();
       setNewEntry({
@@ -302,22 +338,24 @@ export default function CoordinatorTimetablePage() {
                       </select>
                     </div>
                     
-                    <div className="mt-4 grid grid-cols-2 gap-4">
-                      <input
-                        type="text"
-                        value={slot.subject}
-                        onChange={(e) => updateSlot(index, "subject", e.target.value)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        placeholder="Subject Name"
-                      />
-                      <input
-                        type="text"
-                        value={slot.teacherName}
-                        onChange={(e) => updateSlot(index, "teacherName", e.target.value)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        placeholder="Teacher Name (optional)"
-                      />
-                    </div>
+                    {slot.type !== "break" && (
+                      <div className="mt-4 grid grid-cols-2 gap-4">
+                        <input
+                          type="text"
+                          value={slot.subject}
+                          onChange={(e) => updateSlot(index, "subject", e.target.value)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          placeholder="Subject Name"
+                        />
+                        <input
+                          type="text"
+                          value={slot.teacherName}
+                          onChange={(e) => updateSlot(index, "teacherName", e.target.value)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          placeholder="Teacher Name (optional)"
+                        />
+                      </div>
+                    )}
                     
                     <input
                       type="text"
