@@ -18,8 +18,8 @@ router.put("/update/:id", auth, role("coordinator"), updateTimetable);
 router.delete("/delete/:id", auth, role("coordinator"), deleteTimetable);
 
 // Public routes - accessible to all authenticated users
-router.get("/today/:batchId", auth, getTodaysTimetable);
-router.get("/date/:batchId/:date", auth, getTimetableByDate);
-router.get("/batch/:batchId", auth, getBatchTimetables);
+router.get("/today/:batchKey", auth, getTodaysTimetable);
+router.get("/date/:batchKey/:date", auth, getTimetableByDate);
+router.get("/batch/:batchKey", auth, getBatchTimetables);
 
 module.exports = router;

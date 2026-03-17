@@ -386,6 +386,7 @@ export default function StudentPage() {
   const [miniAttendanceRate, setMiniAttendanceRate] = useState(0);
   const [lectureBannerSeconds, setLectureBannerSeconds] = useState(0);
   const [faceRegistered, setFaceRegistered] = useState<boolean | null>(null);
+  const [timetableLoading, setTimetableLoading] = useState(false);
 
   const [isPolling, setIsPolling] = useState(false);
 
@@ -663,12 +664,24 @@ export default function StudentPage() {
   const loadTodaysTimetable = async () => {
     if (!user?.department) return;
     try {
-      const batchId = `${user.department}_${user.year}_${user.division}`;
-      const res = await api.get(`/timetables/today/${batchId}`);
-      setTodaysTimetable(res.data.timetable);
+      setTimetableLoading(true);
+      // Safe batchKey format - department is a string (ObjectId)
+      const deptId = user.department;
+      const batchKey = `${deptId}_${user.year}_${user.division}`;
+      console.log("FRONTEND batchKey:", batchKey);
+      console.log("API CALL:", `/timetables/today/${batchKey}`);
+      const res = await api.get(`/timetables/today/${batchKey}`);
+      console.log("API RESPONSE:", res.data);
+      if (res.data.success) {
+        setTodaysTimetable(res.data.timetable);
+      } else {
+        setTodaysTimetable(null);
+      }
     } catch (error) {
       console.error("Failed to load today's timetable:", error);
       setTodaysTimetable(null);
+    } finally {
+      setTimetableLoading(false);
     }
   };
 
@@ -2482,7 +2495,11 @@ export default function StudentPage() {
               Your classes for today based on the manual timetable set by your coordinator.
             </p>
             <div className="mt-3 overflow-x-auto">
-              {todaysTimetable ? (
+              {timetableLoading ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                  <p className="text-sm text-slate-600">Loading timetable...</p>
+                </div>
+              ) : todaysTimetable ? (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-slate-500">

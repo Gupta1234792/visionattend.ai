@@ -159,7 +159,10 @@ export default function CoordinatorTimetablePage() {
 
     setLoading(true);
     try {
+      const batchKey = `${user?.department}_${newEntry.year}_${newEntry.division}`;
+      
       const payload = {
+        batchKey,
         classLabel: newEntry.classLabel,
         year: newEntry.year,
         division: newEntry.division,
@@ -178,6 +181,9 @@ export default function CoordinatorTimetablePage() {
       };
 
       const res = await api.post("/timetable/create", payload);
+      if (!res.data.success) {
+        throw new Error(res.data.message || "Failed to create timetable");
+      }
       pushToast("Timetable created successfully", "success");
       loadTimetables();
       setNewEntry({

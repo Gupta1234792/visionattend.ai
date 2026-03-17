@@ -8,17 +8,17 @@ const Department = require("../models/Department.model");
 const createTimetable = async (req, res) => {
   try {
     const {
-      batchId,
+      batchKey,
       date,
       periods = [],
       breaks = []
     } = req.body;
 
     // Validation
-    if (!batchId || !date) {
+    if (!batchKey || !date) {
       return res.status(400).json({
         success: false,
-        message: "batchId and date are required"
+        message: "batchKey is required"
       });
     }
 
@@ -32,11 +32,11 @@ const createTimetable = async (req, res) => {
     }
 
     // Verify batch belongs to user's department
-    const batchParts = batchId.split("_");
+    const batchParts = batchKey.split("_");
     if (batchParts.length !== 3) {
       return res.status(400).json({
         success: false,
-        message: "Invalid batchId format. Expected: departmentId_year_division"
+        message: "Invalid batchKey format. Expected: departmentId_year_division"
       });
     }
 
@@ -140,7 +140,7 @@ const createTimetable = async (req, res) => {
 
     // Check if timetable already exists for this date
     const existing = await Timetable.findOne({
-      batchId,
+      batchKey,
       date
     });
 
@@ -153,7 +153,7 @@ const createTimetable = async (req, res) => {
 
     // Create timetable
     const timetable = await Timetable.create({
-      batchId,
+      batchKey,
       date,
       periods: validatedPeriods,
       breaks: validatedBreaks,
@@ -207,7 +207,7 @@ const updateTimetable = async (req, res) => {
     }
 
     // Verify batch belongs to user's department
-    const batchParts = timetable.batchId.split("_");
+    const batchParts = timetable.batchKey.split("_");
     const [departmentId] = batchParts;
     if (user.department?._id.toString() !== departmentId) {
       return res.status(403).json({
@@ -357,7 +357,7 @@ const deleteTimetable = async (req, res) => {
     }
 
     // Verify batch belongs to user's department
-    const batchParts = timetable.batchId.split("_");
+    const batchParts = timetable.batchKey.split("_");
     const [departmentId] = batchParts;
     if (user.department?._id.toString() !== departmentId) {
       return res.status(403).json({
@@ -388,22 +388,32 @@ const deleteTimetable = async (req, res) => {
  */
 const getTodaysTimetable = async (req, res) => {
   try {
-    const { batchId } = req.params;
+    const { batchKey } = req.params;
+    console.log("BACKEND batchKey:", batchKey);
     const today = new Date().toISOString().split('T')[0];
-
-    const timetable = await Timetable.findOne({
-      batchId,
+    console.log("BACKEND today:", today);
+    
+    // Try exact date match
+    let timetable = await Timetable.findOne({
+      batchKey,
       date: today
-    });
+    }).sort({ createdAt: -1 });
+
+    // 🔥 FALLBACK (CRITICAL FIX)
+    if (!timetable) {
+      timetable = await Timetable.findOne({
+        batchKey
+      }).sort({ createdAt: -1 });
+    }
 
     if (!timetable) {
       return res.status(404).json({
         success: false,
-        message: "No timetable found for today"
+        message: "No timetable found"
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       timetable
     });
@@ -422,10 +432,10 @@ const getTodaysTimetable = async (req, res) => {
  */
 const getTimetableByDate = async (req, res) => {
   try {
-    const { batchId, date } = req.params;
+    const { batchKey, date } = req.params;
 
     const timetable = await Timetable.findOne({
-      batchId,
+      batchKey,
       date
     });
 
@@ -455,7 +465,7 @@ const getTimetableByDate = async (req, res) => {
  */
 const getBatchTimetables = async (req, res) => {
   try {
-    const { batchId } = req.params;
+    const { batchKey } = req.params;
     
     // Get timetables for last 30 days
     const thirtyDaysAgo = new Date();
@@ -463,7 +473,7 @@ const getBatchTimetables = async (req, res) => {
     const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
     const timetables = await Timetable.find({
-      batchId,
+      batchKey,
       date: { $gte: thirtyDaysAgoStr }
     }).sort({ date: -1 });
 

@@ -146,7 +146,7 @@ export default function CoordinatorPage() {
       await api.post("/lectures", {
         title: lectureForm.title.trim(),
         subjectId: lectureForm.subjectId,
-        batchId: batchKey,
+        batchKey: batchKey,
         scheduledAt,
         durationMinutes: Number(lectureForm.durationMinutes),
         purpose: lectureForm.purpose.trim()
@@ -171,7 +171,7 @@ export default function CoordinatorPage() {
 
     try {
       const res = await api.post("/holidays", {
-        batchId: batchKey,
+        batchKey: batchKey,
         fromDate: new Date(holidayForm.fromDate).toISOString(),
         toDate: new Date(holidayForm.toDate).toISOString(),
         reason: holidayForm.reason.trim()

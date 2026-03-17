@@ -33,7 +33,7 @@ export default function EnhancedSchedulerPage() {
     lectures: [] as Array<{
       title: string;
       subjectId: string;
-      batchId: string;
+      batchKey: string;
       scheduledAt: string;
       durationMinutes: number;
       purpose: string;
@@ -118,7 +118,7 @@ export default function EnhancedSchedulerPage() {
       lectures: [...prev.lectures, {
         title: "",
         subjectId: subjects[0]?._id || "",
-        batchId: batches[0] ? `${batches[0].department}_${batches[0].year}_${batches[0].division}` : "",
+        batchKey: batches[0] ? `${batches[0].department}_${batches[0].year}_${batches[0].division}` : "",
         scheduledAt: "",
         durationMinutes: 60,
         purpose: ""
