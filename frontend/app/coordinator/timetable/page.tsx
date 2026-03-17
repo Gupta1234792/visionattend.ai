@@ -122,23 +122,14 @@ export default function CoordinatorTimetablePage() {
     }));
   };
 
-  const validateSlot = (slot: TimetableSlot, index: number) => {
-    const errors: string[] = [];
-    
-    if (!slot.startTime) {
-      errors.push(`Slot ${index + 1}: Start time is required`);
-    }
-    
-    if (!slot.subject && slot.type !== "break") {
-      errors.push(`Slot ${index + 1}: Subject is required for non-break slots`);
-    }
-    
-    if (slot.type !== "break" && !slot.teacherName) {
-      errors.push(`Slot ${index + 1}: Teacher name is required for non-break slots`);
-    }
-    
-    return errors;
-  };
+  const validateSlot = (slot: TimetableSlot) => {
+  if (!slot.startTime) return "Start time is required";
+  if (!slot.endTime) return "End time is required";
+  if (!slot.type) return "Slot type is required";
+  if (slot.type !== "break" && !slot.teacherName?.trim()) return "Teacher is required for non-break slots";
+  if (!slot.subject?.trim() && slot.type !== "break") return "Subject is required for non-break slots";
+  return null;
+};
 
   const removeSlot = (index: number) => {
     setNewEntry(prev => ({
@@ -166,28 +157,29 @@ export default function CoordinatorTimetablePage() {
     try {
       const batchKey = `${user?.department}_${newEntry.year}_${newEntry.division}`;
       
-      const normalizedSlots = newEntry.slots.map(slot => ({
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        subject: slot.subject || "",
-        teacherName: slot.teacherName || "",
-        teacherId: slot.teacherId || "",
-        type: String(slot.type).toLowerCase().trim(),
-        notes: slot.notes || "",
-        order: slot.order
-      }));
+      const normalizedSlots = newEntry.slots.map((slot, index) => ({
+  startTime: slot.startTime,
+  endTime: slot.endTime || "",
+  subject: slot.type === "break" ? "" : slot.subject?.trim(),
+  teacher: slot.type === "break" ? "" : slot.teacherName?.trim(),
+  type: String(slot.type).toLowerCase().trim(),
+  notes: slot.notes || "",
+  order: index
+}));
 
       console.log("FINAL PAYLOAD:", normalizedSlots);
 
       const payload = {
-        batchKey,
-        classLabel: newEntry.classLabel,
-        year: newEntry.year,
-        division: newEntry.division,
-        date: newEntry.date,
-        slots: normalizedSlots,
-        isPublished: true
-      };
+  batchKey,
+  classLabel: newEntry.classLabel,
+  year: newEntry.year,
+  division: newEntry.division,
+  date: newEntry.date,
+  slots: normalizedSlots,
+  isPublished: true
+};
+
+console.log("SLOTS:", normalizedSlots);
 
       const res = await api.post("/timetable/create", payload);
       if (!res.data.success) {

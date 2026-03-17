@@ -53,8 +53,8 @@ const createTimetable = async (req, res) => {
 
       // 🔥 BREAK FIX
       if (type === "break") {
-        subject = "";
-        teacher = "";
+        slot.subject = null;
+        slot.teacher = null;
       } else {
         if (!subject || !teacher) {
           return res.status(400).json({
