@@ -169,7 +169,22 @@ export default function CoordinatorTimetablePage() {
 
       console.log("FINAL PAYLOAD:", normalizedSlots);
 
-      const payload = {
+      const toMinutes = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+
+const invalidSlot = newEntry.slots.find(slot => {
+  if (!slot.startTime || !slot.endTime) return false;
+  return toMinutes(slot.startTime) >= toMinutes(slot.endTime);
+});
+
+if (invalidSlot) {
+  pushToast("End time must be greater than start time", "error");
+  return;
+}
+
+const payload = {
   batchKey,
   classLabel: newEntry.classLabel,
   year: newEntry.year,
