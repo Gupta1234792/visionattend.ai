@@ -93,16 +93,6 @@ const createTimetable = async (req, res) => {
       // 🔥 NORMALIZE slot.type BEFORE validation
       slot.type = String(slot.type).toLowerCase().trim();
 
-      // Validate type
-      const validTypes = ["lecture", "lab", "break"];
-      
-      if (!validTypes.includes(slot.type)) {
-        return res.status(400).json({
-          success: false,
-          message: `Slot ${i + 1}: invalid slot type`
-        });
-      }
-
       // 🔥 BREAK SLOT LOGIC
       if (slot.type === "break") {
         slot.subject = null;
