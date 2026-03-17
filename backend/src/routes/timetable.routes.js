@@ -7,7 +7,7 @@ const {
   getTimetableByDate, 
   getBatchTimetables 
 } = require("../controllers/timetable.controller");
-const { auth } = require("../middlewares/auth.middleware");
+const auth = require("../middlewares/auth.middleware");
 const roleMiddleware = require("../middlewares/role.middleware");
 
 const router = express.Router();

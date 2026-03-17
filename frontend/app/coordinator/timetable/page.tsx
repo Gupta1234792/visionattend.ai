@@ -67,8 +67,13 @@ export default function CoordinatorTimetablePage() {
   };
 
   const loadTimetables = async () => {
+    if (!user?.department || !user?.year || !user?.division) return;
+    
     try {
-      const res = await api.get("/timetables/range/TY_IT"); // Default batch
+      const batchKey = `${user.department}_${user.year}_${user.division}`;
+      console.log("FETCH batchKey:", batchKey);
+      
+      const res = await api.get(`/timetables/range/${batchKey}`);
       setTimetables(res.data.timetables || []);
     } catch (error) {
       pushToast(parseApiError(error, "Failed to load timetables"), "error");

@@ -91,14 +91,14 @@ const createTimetable = async (req, res) => {
       }
 
       // 🔥 NORMALIZE slot.type BEFORE validation
-      slot.type = String(slot.type).toLowerCase().trim();
+      const normalizedType = String(type).toLowerCase().trim();
 
       // 🔥 BREAK SLOT LOGIC
-      if (slot.type === "break") {
-        slot.subject = null;
-        slot.teacher = null;
+      if (normalizedType === "break") {
+        subject = null;
+        teacher = null;
       } else {
-        if (!slot.subject || !slot.teacher) {
+        if (!subject || !teacher) {
           return res.status(400).json({
             success: false,
             message: `Slot ${i + 1}: subject and teacher required`
@@ -112,7 +112,7 @@ const createTimetable = async (req, res) => {
         endTime,
         subject,
         teacher: teacher || null,
-        type
+        type: normalizedType
       });
     }
 
