@@ -31,7 +31,8 @@ const createTimetable = async (req, res) => {
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
 
-      let { startTime, endTime, subject, teacher, type } = slot;
+      let { startTime, endTime, subject, teacherName, type } = slot;
+const teacher = teacherName;
 
       type = String(type).toLowerCase().trim();
 

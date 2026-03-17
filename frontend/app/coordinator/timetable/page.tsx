@@ -179,7 +179,7 @@ export default function CoordinatorTimetablePage() {
   isPublished: true
 };
 
-console.log("SLOTS:", normalizedSlots);
+console.log("FINAL PAYLOAD:", payload);
 
       const res = await api.post("/timetable/create", payload);
       if (!res.data.success) {
