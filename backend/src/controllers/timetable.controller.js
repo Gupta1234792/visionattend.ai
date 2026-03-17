@@ -90,11 +90,13 @@ const createTimetable = async (req, res) => {
         });
       }
 
-      // Validate type (case-insensitive)
+      // 🔥 NORMALIZE slot.type BEFORE validation
+      slot.type = String(slot.type).toLowerCase().trim();
+
+      // Validate type
       const validTypes = ["lecture", "lab", "break"];
-      const normalizedType = String(type).toLowerCase().trim();
       
-      if (!validTypes.includes(normalizedType)) {
+      if (!validTypes.includes(slot.type)) {
         return res.status(400).json({
           success: false,
           message: `Slot ${i + 1}: invalid slot type`
@@ -102,7 +104,7 @@ const createTimetable = async (req, res) => {
       }
 
       // 🔥 BREAK SLOT LOGIC
-      if (normalizedType === "break") {
+      if (slot.type === "break") {
         slot.subject = null;
         slot.teacher = null;
       } else {
@@ -113,9 +115,6 @@ const createTimetable = async (req, res) => {
           });
         }
       }
-
-      // Normalize type for storage
-      type = normalizedType;
 
       validatedPeriods.push({
         periodNumber: i + 1,

@@ -278,7 +278,7 @@ export default function CoordinatorTimetablePage() {
                 />
               </div>
               
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <select
                   value={newEntry.year}
                   onChange={(e) => setNewEntry(prev => ({ ...prev, year: e.target.value }))}
@@ -298,13 +298,6 @@ export default function CoordinatorTimetablePage() {
                   <option value="B">B</option>
                   <option value="C">C</option>
                 </select>
-                <input
-                  type="text"
-                  placeholder="Department ID"
-                  value={newEntry.department}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, department: e.target.value }))}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
               </div>
 
               {/* Slots Management */}
@@ -338,9 +331,7 @@ export default function CoordinatorTimetablePage() {
                       />
                       <select
                         value={slot.type}
-                        onChange={(e) =>
-                          updateSlot(index, "type", e.target.value.toLowerCase())
-                        }
+                        onChange={(e) => updateSlot(index, "type", e.target.value)}
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       >
                         <option value="lecture">Lecture</option>
