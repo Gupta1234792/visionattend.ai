@@ -17,15 +17,9 @@ const timetableSlotSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
-    teacherName: {
+    teacher: {
       type: String,
-      default: "",
-      trim: true
-    },
-    teacherId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null
+      default: ""
     },
     type: {
       type: String,
