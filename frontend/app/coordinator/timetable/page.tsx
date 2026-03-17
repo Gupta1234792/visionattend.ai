@@ -172,6 +172,8 @@ export default function CoordinatorTimetablePage() {
         order: slot.order
       }));
 
+      console.log("FINAL PAYLOAD:", normalizedSlots);
+
       const payload = {
         batchKey,
         classLabel: newEntry.classLabel,

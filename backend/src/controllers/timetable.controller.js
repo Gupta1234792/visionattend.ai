@@ -97,10 +97,23 @@ const createTimetable = async (req, res) => {
       if (!validTypes.includes(normalizedType)) {
         return res.status(400).json({
           success: false,
-          message: `Period ${i + 1}: Invalid slot type: ${type}. Allowed: ${validTypes.join(", ")}`
+          message: `Slot ${i + 1}: invalid slot type`
         });
       }
-      
+
+      // 🔥 BREAK SLOT LOGIC
+      if (normalizedType === "break") {
+        subject = null;
+        teacher = null;
+      } else {
+        if (!subject || !teacher) {
+          return res.status(400).json({
+            success: false,
+            message: `Slot ${i + 1}: subject and teacher required`
+          });
+        }
+      }
+
       // Normalize type for storage
       type = normalizedType;
 
@@ -177,7 +190,7 @@ const createTimetable = async (req, res) => {
     }
 
     // Debug logging
-    console.log("FINAL SLOT PAYLOAD:", validatedPeriods);
+    console.log("SLOTS RECEIVED:", validatedPeriods);
 
     // Create timetable
     const timetable = await Timetable.create({
