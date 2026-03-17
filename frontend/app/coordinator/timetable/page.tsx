@@ -13,7 +13,7 @@ type TimetableSlot = {
   subject: string;
   teacherName: string;
   teacherId: string;
-  type: "lecture" | "practical" | "break" | "custom";
+  type: "lecture" | "lab" | "break" ;
   notes: string;
   order: number;
 };

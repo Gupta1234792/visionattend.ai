@@ -9,87 +9,52 @@ const createTimetable = async (req, res) => {
   try {
     const {
       batchKey,
+      classLabel,
       date,
-      periods = [],
-      breaks = []
+      year,
+      division,
+      slots,
+      isPublished
     } = req.body;
 
-    // Validation
-    if (!batchKey || !date) {
+    // 🔥 VALIDATION
+    if (!batchKey || !classLabel || !date || !year || !division || !slots?.length) {
       return res.status(400).json({
         success: false,
-        message: "batchKey is required"
+        message: "Missing required fields"
       });
     }
 
-    // Check if user is coordinator for this department
-    const user = await User.findById(req.user._id).populate("department");
-    if (!user || user.role !== "coordinator") {
-      return res.status(403).json({
-        success: false,
-        message: "Only coordinators can create timetables"
-      });
-    }
+    // 🔥 SLOT VALIDATION
+    const validatedSlots = [];
 
-    // Verify batch belongs to user's department
-    const batchParts = batchKey.split("_");
-    if (batchParts.length !== 3) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid batchKey format. Expected: departmentId_year_division"
-      });
-    }
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
 
-    const [departmentId, year, division] = batchParts;
-    if (user.department?._id.toString() !== departmentId) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied: batch not in your department"
-      });
-    }
+      let { startTime, endTime, subject, teacher, type } = slot;
 
-    // Validate periods
-    const validatedPeriods = [];
-    for (let i = 0; i < periods.length; i++) {
-      const period = periods[i];
-      const { startTime, endTime, subject, teacher, type = "lecture" } = period;
+      type = String(type).toLowerCase().trim();
 
-      if (!startTime || !endTime) {
+      if (!startTime) {
         return res.status(400).json({
           success: false,
-          message: `Period ${i + 1}: startTime and endTime are required`
+          message: `Slot ${i + 1}: startTime required`
         });
       }
 
-      // Validate time format (HH:MM)
-      const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-      if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
+      const validTypes = ["lecture", "lab", "break"];
+
+      if (!validTypes.includes(type)) {
         return res.status(400).json({
           success: false,
-          message: `Period ${i + 1}: Invalid time format. Use HH:MM`
+          message: `Slot ${i + 1}: invalid slot type`
         });
       }
 
-      // Validate time range
-      const toMinutes = (t) => {
-        const [h, m] = t.split(":").map(Number);
-        return h * 60 + m;
-      };
-
-      if (toMinutes(startTime) >= toMinutes(endTime)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid time range for slot ${i + 1}`
-        });
-      }
-
-      // 🔥 NORMALIZE slot.type BEFORE validation
-      const normalizedType = String(type).toLowerCase().trim();
-
-      // 🔥 BREAK SLOT LOGIC
-      if (normalizedType === "break") {
-        subject = null;
-        teacher = null;
+      // 🔥 BREAK FIX
+      if (type === "break") {
+        subject = "";
+        teacher = "";
       } else {
         if (!subject || !teacher) {
           return res.status(400).json({
@@ -99,101 +64,37 @@ const createTimetable = async (req, res) => {
         }
       }
 
-      validatedPeriods.push({
-        periodNumber: i + 1,
+      validatedSlots.push({
         startTime,
         endTime,
         subject,
-        teacher: teacher || null,
-        type: normalizedType
+        teacher,
+        type,
+        order: i
       });
     }
 
-    // Validate breaks
-    const validatedBreaks = [];
-    for (let i = 0; i < breaks.length; i++) {
-      const breakItem = breaks[i];
-      const { startTime, endTime, reason } = breakItem;
-
-      if (!startTime || !endTime || !reason) {
-        return res.status(400).json({
-          success: false,
-          message: `Break ${i + 1}: startTime, endTime, and reason are required`
-        });
-      }
-
-      // Validate time format
-      const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-      if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
-        return res.status(400).json({
-          success: false,
-          message: `Break ${i + 1}: Invalid time format. Use HH:MM`
-        });
-      }
-
-      validatedBreaks.push({
-        startTime,
-        endTime,
-        reason
-      });
-    }
-
-    // Check for overlapping periods
-    const allSlots = [...validatedPeriods, ...validatedBreaks];
-    allSlots.sort((a, b) => {
-      if (a.startTime < b.startTime) return -1;
-      if (a.startTime > b.startTime) return 1;
-      return 0;
-    });
-
-    for (let i = 0; i < allSlots.length - 1; i++) {
-      const current = allSlots[i];
-      const next = allSlots[i + 1];
-      
-      if (current.endTime > next.startTime) {
-        return res.status(400).json({
-          success: false,
-          message: "Overlapping time slots detected"
-        });
-      }
-    }
-
-    // Check if timetable already exists for this date
-    const existing = await Timetable.findOne({
-      batchKey,
-      date
-    });
-
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        message: "Timetable already exists for this date"
-      });
-    }
-
-    // Debug logging
-    console.log("SLOTS RECEIVED:", validatedPeriods);
-
-    // Create timetable
+    // 🔥 CREATE
     const timetable = await Timetable.create({
       batchKey,
+      classLabel,
       date,
-      periods: validatedPeriods,
-      breaks: validatedBreaks,
-      createdBy: req.user._id,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      year,
+      division,
+      slots: validatedSlots,
+      isPublished: isPublished ?? true,
+      isActive: true
     });
 
-    res.status(201).json({
+    return res.json({
       success: true,
-      message: "Timetable created successfully",
       timetable
     });
 
   } catch (error) {
-    console.error("Create timetable error:", error);
-    res.status(500).json({
+    console.error("CREATE TIMETABLE ERROR:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to create timetable"
     });
