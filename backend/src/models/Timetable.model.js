@@ -23,8 +23,8 @@ const timetableSlotSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["theory", "practical", "event", "break"],
-      default: "theory"
+      enum: ["lecture", "lab", "break"],
+      default: "lecture"
     },
     notes: {
       type: String,
