@@ -54,17 +54,10 @@ const createTimetable = async (req, res) => {
       const period = periods[i];
       const { startTime, endTime, subject, teacher, type = "lecture" } = period;
 
-      if (!startTime || !endTime || !subject) {
+      if (!startTime || !endTime) {
         return res.status(400).json({
           success: false,
-          message: `Period ${i + 1}: startTime, endTime, and subject are required`
-        });
-      }
-
-      if (!subject || !teacher) {
-        return res.status(400).json({
-          success: false,
-          message: `Missing subject or teacher in slot ${i + 1}`
+          message: `Period ${i + 1}: startTime and endTime are required`
         });
       }
 

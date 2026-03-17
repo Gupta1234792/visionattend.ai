@@ -169,11 +169,11 @@ export default function CoordinatorTimetablePage() {
       const normalizedSlots = newEntry.slots.map(slot => ({
         startTime: slot.startTime,
         endTime: slot.endTime,
-        subject: slot.subject,
-        teacherName: slot.teacherName,
-        teacherId: slot.teacherId,
+        subject: slot.subject || "",
+        teacherName: slot.teacherName || "",
+        teacherId: slot.teacherId || "",
         type: String(slot.type).toLowerCase().trim(),
-        notes: slot.notes,
+        notes: slot.notes || "",
         order: slot.order
       }));
 
