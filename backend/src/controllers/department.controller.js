@@ -86,7 +86,98 @@ const listDepartments = async (req, res) => {
   }
 };
 
+const getDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const department = await Department.findById(id)
+      .populate("college", "name")
+      .populate("hod", "name email");
+
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: "Department not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      department
+    });
+  } catch (error) {
+    console.error("Get department error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch department"
+    });
+  }
+};
+
+const updateDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, code, hodId } = req.body;
+
+    const department = await Department.findById(id);
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: "Department not found"
+      });
+    }
+
+    if (name) department.name = name;
+    if (code) department.code = code;
+    if (hodId) department.hod = hodId;
+
+    await department.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Department updated successfully",
+      department
+    });
+  } catch (error) {
+    console.error("Update department error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update department"
+    });
+  }
+};
+
+const deleteDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const department = await Department.findById(id);
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: "Department not found"
+      });
+    }
+
+    department.isActive = false;
+    await department.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Department deactivated successfully"
+    });
+  } catch (error) {
+    console.error("Delete department error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete department"
+    });
+  }
+};
+
 module.exports = {
   createDepartment,
-  listDepartments
+  listDepartments,
+  getDepartment,
+  updateDepartment,
+  deleteDepartment
 };
