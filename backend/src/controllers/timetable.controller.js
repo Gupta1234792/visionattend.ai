@@ -61,6 +61,13 @@ const createTimetable = async (req, res) => {
         });
       }
 
+      if (!subject || !teacher) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing subject or teacher in slot ${i + 1}`
+        });
+      }
+
       // Validate time format (HH:MM)
       const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
       if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
@@ -70,14 +77,32 @@ const createTimetable = async (req, res) => {
         });
       }
 
-      // Validate type
-      const validTypes = ["lecture", "lab", "tutorial", "break"];
-      if (!validTypes.includes(type)) {
+      // Validate time range
+      const toMinutes = (t) => {
+        const [h, m] = t.split(":").map(Number);
+        return h * 60 + m;
+      };
+
+      if (toMinutes(startTime) >= toMinutes(endTime)) {
         return res.status(400).json({
           success: false,
-          message: `Period ${i + 1}: Invalid type. Must be one of: ${validTypes.join(", ")}`
+          message: `Invalid time range for slot ${i + 1}`
         });
       }
+
+      // Validate type (case-insensitive)
+      const validTypes = ["lecture", "lab", "break"];
+      const normalizedType = String(type).toLowerCase().trim();
+      
+      if (!validTypes.includes(normalizedType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Period ${i + 1}: Invalid slot type: ${type}. Allowed: ${validTypes.join(", ")}`
+        });
+      }
+      
+      // Normalize type for storage
+      type = normalizedType;
 
       validatedPeriods.push({
         periodNumber: i + 1,
@@ -150,6 +175,9 @@ const createTimetable = async (req, res) => {
         message: "Timetable already exists for this date"
       });
     }
+
+    // Debug logging
+    console.log("FINAL SLOT PAYLOAD:", validatedPeriods);
 
     // Create timetable
     const timetable = await Timetable.create({

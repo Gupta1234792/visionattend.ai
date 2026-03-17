@@ -50,7 +50,7 @@ export default function CoordinatorTimetablePage() {
     department: "",
     year: "FY",
     division: "A",
-    slots: [] as TimetableSlot[]
+        slots: [] as TimetableSlot[]
   });
 
   const [editingEntry, setEditingEntry] = useState<TimetableEntry | null>(null);
@@ -161,22 +161,24 @@ export default function CoordinatorTimetablePage() {
     try {
       const batchKey = `${user?.department}_${newEntry.year}_${newEntry.division}`;
       
+      const normalizedSlots = newEntry.slots.map(slot => ({
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        subject: slot.subject,
+        teacherName: slot.teacherName,
+        teacherId: slot.teacherId,
+        type: String(slot.type).toLowerCase().trim(),
+        notes: slot.notes,
+        order: slot.order
+      }));
+
       const payload = {
         batchKey,
         classLabel: newEntry.classLabel,
         year: newEntry.year,
         division: newEntry.division,
         date: newEntry.date,
-        slots: newEntry.slots.map(slot => ({
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          subject: slot.subject,
-          teacherName: slot.teacherName,
-          teacherId: slot.teacherId,
-          type: slot.type,
-          notes: slot.notes,
-          order: slot.order
-        })),
+        slots: normalizedSlots,
         isPublished: true
       };
 
@@ -334,13 +336,14 @@ export default function CoordinatorTimetablePage() {
                       />
                       <select
                         value={slot.type}
-                        onChange={(e) => updateSlot(index, "type", e.target.value)}
+                        onChange={(e) =>
+                          updateSlot(index, "type", e.target.value.toLowerCase())
+                        }
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                       >
                         <option value="lecture">Lecture</option>
-                        <option value="practical">Practical</option>
+                        <option value="lab">Lab</option>
                         <option value="break">Break</option>
-                        <option value="custom">Custom</option>
                       </select>
                     </div>
                     
