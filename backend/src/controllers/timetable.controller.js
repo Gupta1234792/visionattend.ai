@@ -18,6 +18,8 @@ const createTimetable = async (req, res) => {
     } = req.body;
 
     // 🔥 VALIDATION
+    console.log("BODY:", req.body);
+    
     if (!batchKey || !classLabel || !date || !year || !division || !slots?.length) {
       return res.status(400).json({
         success: false,
@@ -31,8 +33,7 @@ const createTimetable = async (req, res) => {
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
 
-      let { startTime, endTime, subject, teacherName, type } = slot;
-const teacher = teacherName;
+      let { startTime, endTime, subject, teacher, type } = slot;
 
       type = String(type).toLowerCase().trim();
 
@@ -54,8 +55,8 @@ const teacher = teacherName;
 
       // 🔥 BREAK FIX
       if (type === "break") {
-        slot.subject = null;
-        slot.teacher = null;
+        subject = "";
+        teacher = "";
       } else {
         if (!subject || !teacher) {
           return res.status(400).json({
@@ -76,6 +77,8 @@ const teacher = teacherName;
     }
 
     // 🔥 CREATE
+    console.log("VALIDATED SLOTS:", validatedSlots);
+    
     const timetable = await Timetable.create({
       batchKey,
       classLabel,

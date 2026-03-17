@@ -158,8 +158,8 @@ export default function CoordinatorTimetablePage() {
       const batchKey = `${user?.department}_${newEntry.year}_${newEntry.division}`;
       
       const normalizedSlots = newEntry.slots.map((slot, index) => ({
-  startTime: slot.startTime,
-  endTime: slot.endTime || "",
+  startTime: slot.startTime?.slice(0,5),
+  endTime: slot.endTime?.slice(0,5) || "",
   subject: slot.type === "break" ? "" : slot.subject?.trim(),
   teacher: slot.type === "break" ? "" : slot.teacherName?.trim(),
   type: String(slot.type).toLowerCase().trim(),
@@ -174,12 +174,12 @@ export default function CoordinatorTimetablePage() {
   classLabel: newEntry.classLabel,
   year: newEntry.year,
   division: newEntry.division,
-  date: newEntry.date,
+  date: new Date(newEntry.date).toISOString().split("T")[0],
   slots: normalizedSlots,
   isPublished: true
 };
 
-console.log("FINAL PAYLOAD:", payload);
+console.log("SENDING:", JSON.stringify(payload, null, 2));
 
       const res = await api.post("/timetable/create", payload);
       if (!res.data.success) {
