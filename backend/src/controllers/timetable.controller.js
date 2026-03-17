@@ -103,10 +103,10 @@ const createTimetable = async (req, res) => {
 
       // 🔥 BREAK SLOT LOGIC
       if (normalizedType === "break") {
-        subject = null;
-        teacher = null;
+        slot.subject = null;
+        slot.teacher = null;
       } else {
-        if (!subject || !teacher) {
+        if (!slot.subject || !slot.teacher) {
           return res.status(400).json({
             success: false,
             message: `Slot ${i + 1}: subject and teacher required`
