@@ -1,25 +1,7 @@
 const express = require("express");
-const { 
-  createTimetable, 
-  updateTimetable, 
-  deleteTimetable, 
-  getTodaysTimetable, 
-  getTimetableByDate, 
-  getBatchTimetables 
-} = require("../controllers/timetable.controller");
-const auth = require("../middlewares/auth.middleware");
-const roleMiddleware = require("../middlewares/role.middleware");
 
 const router = express.Router();
 
-// Coordinator routes - require coordinator role
-router.post("/create", auth, roleMiddleware("coordinator"), createTimetable);
-router.put("/update/:id", auth, roleMiddleware("coordinator"), updateTimetable);
-router.delete("/delete/:id", auth, roleMiddleware("coordinator"), deleteTimetable);
-
-// Public routes - accessible to all authenticated users
-router.get("/today/:batchKey", auth, getTodaysTimetable);
-router.get("/date/:batchKey/:date", auth, getTimetableByDate);
-router.get("/batch/:batchKey", auth, getBatchTimetables);
+// Timetable routes have been removed
 
 module.exports = router;
