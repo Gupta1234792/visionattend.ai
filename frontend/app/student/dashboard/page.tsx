@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Download, Loader2 } from "lucide-react";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -39,20 +39,8 @@ type AnalyticsPayload = {
     subject: string;
     tooltip: string;
   }>;
-  prediction: {
-    primaryMessage: string;
-    riskMessage: string;
-    ifAttendNext5: number;
-    ifMissNext2: number;
-    classesNeededFor75: number;
-    threshold: number;
-  } | null;
-  lowAttendanceAlert: {
-    active: boolean;
-    threshold: number;
-    classesNeeded: number;
-    message: string;
-  } | null;
+  prediction: any;
+  lowAttendanceAlert: any;
 };
 
 const emptyPayload: AnalyticsPayload = {
@@ -78,21 +66,43 @@ export default function StudentAnalyticsDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("Loading analytics...");
 
+  // 🔥 IMPORTANT: store last data to prevent re-render storm
+  const payloadRef = useRef<AnalyticsPayload>(emptyPayload);
+
   useEffect(() => {
+    let isMounted = true;
+
     const load = async () => {
       try {
         const res = await api.get("/student/analytics");
-        setPayload({ ...emptyPayload, ...(res.data || {}) });
+        const newData = { ...emptyPayload, ...(res.data || {}) };
+
+        if (!isMounted) return;
+
+        // 🧠 ONLY update if data actually changed
+        if (JSON.stringify(payloadRef.current) !== JSON.stringify(newData)) {
+          payloadRef.current = newData;
+          setPayload(newData);
+        }
+
         setMessage("Analytics loaded.");
       } catch (error) {
-        const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+        const apiMessage = (error as any)?.response?.data?.message;
         setMessage(apiMessage || "Failed to load student analytics.");
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false); // only first load matters
       }
     };
 
-    void load();
+    load();
+
+    // 🔁 OPTIONAL polling (safe)
+    const interval = setInterval(load, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const exportCsv = async () => {
@@ -116,42 +126,34 @@ export default function StudentAnalyticsDashboardPage() {
     <ProtectedRoute allow={["student"]}>
       <DashboardLayout title="Student Analytics Dashboard">
         <div className="space-y-4">
-          <section className="rounded-[1.9rem] border border-white/60 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.18),transparent_35%),linear-gradient(135deg,rgba(255,255,255,0.82),rgba(240,246,255,0.72))] p-5 shadow-[0_24px_60px_rgba(15,23,42,0.1)] backdrop-blur-xl">
+          
+          {/* HEADER */}
+          <section className="rounded-[1.9rem] border border-white/60 bg-white/80 p-5 shadow-lg">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Student Intelligence</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Attendance insights that actually help you plan</h1>
-                <p className="mt-2 max-w-3xl text-sm text-slate-600">
-                  Track your streak, identify weak subjects, and understand how the next few classes change your attendance.
-                </p>
+                <h1 className="text-2xl font-semibold">Attendance Insights</h1>
+                <p className="text-sm text-gray-600">Track and improve your performance</p>
               </div>
+
               <button
-                type="button"
                 onClick={exportCsv}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+                className="flex items-center gap-2 px-4 py-2 bg-white border rounded-full shadow-sm"
               >
-                <Download className="h-4 w-4" />
-                Export Report
+                <Download size={16} />
+                Export
               </button>
             </div>
           </section>
 
+          {/* LOADING */}
           {loading ? (
-            <section className="rounded-[1.8rem] border border-white/60 bg-white/60 p-10 text-center shadow-[0_20px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-              <Loader2 className="mx-auto h-8 w-8 animate-spin text-slate-500" />
-              <p className="mt-3 text-sm text-slate-600">{message}</p>
-            </section>
+            <div className="p-10 text-center">
+              <Loader2 className="animate-spin mx-auto" />
+              <p className="mt-2 text-sm">{message}</p>
+            </div>
           ) : (
             <>
-              <StudentAnalyticsCards
-                overallAttendance={payload.overallAttendance}
-                totalClassesAttended={payload.totalClassesAttended}
-                totalClassesMissed={payload.totalClassesMissed}
-                totalLectures={payload.totalLectures}
-                streak={payload.streak}
-                classesToday={payload.classesToday}
-              />
-
+              <StudentAnalyticsCards {...payload} />
               <AttendancePrediction prediction={payload.prediction} lowAttendanceAlert={payload.lowAttendanceAlert} />
               <AttendanceHeatmap data={payload.heatmapData} />
               <MonthlyCharts
@@ -164,9 +166,8 @@ export default function StudentAnalyticsDashboardPage() {
             </>
           )}
 
-          <div className="rounded-2xl border border-white/70 bg-white/75 p-3 text-sm text-slate-700 shadow-[0_8px_25px_rgba(35,70,140,0.06)]">
-            {message}
-          </div>
+          {/* MESSAGE */}
+          <div className="p-3 text-sm text-gray-600">{message}</div>
         </div>
       </DashboardLayout>
     </ProtectedRoute>
