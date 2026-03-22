@@ -8,6 +8,59 @@ const { getEligibleStudentsForParentEmail, normalizeEmail, syncParentLinksForUse
 const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const sendPasswordResetEmail = require("../utils/sendPasswordResetEmail");
 const DEV_MODE = process.env.DEV_MODE === "true";
+const AUTH_DEBUG = process.env.AUTH_DEBUG === "true";
+
+const logAuthDebug = (message, metadata = {}) => {
+  if (!AUTH_DEBUG) {
+    return;
+  }
+
+  console.log(`[auth] ${message}`, metadata);
+};
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildEmailLookup = (normalizedEmail) => ({
+  $or: [
+    { email: normalizedEmail },
+    { email: { $regex: `^${escapeRegex(normalizedEmail)}$`, $options: "i" } },
+    {
+      $expr: {
+        $eq: [
+          {
+            $toLower: {
+              $trim: {
+                input: { $ifNull: ["$email", ""] }
+              }
+            }
+          },
+          normalizedEmail
+        ]
+      }
+    }
+  ],
+});
+
+const verifyPassword = async (plainPassword, storedPassword) => {
+  const normalizedStoredPassword = String(storedPassword || "").trim();
+
+  if (!normalizedStoredPassword) {
+    return { matched: false, needsRehash: false };
+  }
+
+  if (/^\$2[aby]\$\d{2}\$/.test(normalizedStoredPassword)) {
+    return {
+      matched: await comparePassword(plainPassword, normalizedStoredPassword),
+      needsRehash: false,
+    };
+  }
+
+  if (normalizedStoredPassword === plainPassword) {
+    return { matched: true, needsRehash: true };
+  }
+
+  return { matched: false, needsRehash: false };
+};
 
 const register = async (req, res) => {
   try {
@@ -43,7 +96,7 @@ const register = async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({ email: normalizedEmail });
+    const existingUser = await User.findOne(buildEmailLookup(normalizedEmail));
     if (existingUser) {
       return res.status(409).json({
         success: false,
@@ -90,7 +143,7 @@ const register = async (req, res) => {
 
     const hashedPassword = await hashPassword(password);
     const user = await User.create({
-      name,
+      name: String(name || "").trim(),
       email: normalizedEmail,
       password: hashedPassword,
       role: normalizedRole,
@@ -299,6 +352,12 @@ const login = async (req, res) => {
     const password = String(req.body?.password || "");
     const role = String(req.body?.role || "").trim().toLowerCase();
 
+    logAuthDebug("login request received", {
+      email,
+      role,
+      hasPassword: Boolean(password)
+    });
+
     if (!email || !password || !role) {
       return res.status(400).json({
         success: false,
@@ -306,32 +365,49 @@ const login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne(buildEmailLookup(email));
+
+    logAuthDebug("login user lookup completed", {
+      email,
+      found: Boolean(user),
+      userId: user?._id?.toString() || null,
+      userRole: user?.role || null,
+      isActive: user?.isActive ?? null
+    });
 
     if (!user || !user.isActive) {
-      return res.status(401).json({
+      return res.status(404).json({
         success: false,
-        message: role === "parent"
-          ? "Parent account not found. Register first using the linked parent email."
-          : "Invalid credentials"
+        message: !user
+          ? role === "parent"
+            ? "Parent account not found. Register first using the linked parent email."
+            : "User not found"
+          : "User account is inactive"
       });
     }
 
-    const storedPassword = String(user.password || "");
-    let isMatch = false;
+    const passwordCheck = await verifyPassword(password, user.password);
 
-    if (/^\$2[aby]\$\d{2}\$/.test(storedPassword)) {
-      isMatch = await comparePassword(password, storedPassword);
-    } else if (storedPassword && storedPassword === password) {
-      isMatch = true;
-      user.password = await hashPassword(password);
-      await user.save();
-    }
+    logAuthDebug("login password verification completed", {
+      email,
+      userId: user._id.toString(),
+      passwordMatched: passwordCheck.matched,
+      needsRehash: passwordCheck.needsRehash
+    });
 
-    if (!isMatch) {
+    if (!passwordCheck.matched) {
       return res.status(401).json({
         success: false,
-        message: "Invalid credentials"
+        message: "Invalid password"
+      });
+    }
+
+    if (passwordCheck.needsRehash) {
+      user.password = password;
+      await user.save();
+      logAuthDebug("legacy plaintext password migrated to bcrypt", {
+        email,
+        userId: user._id.toString()
       });
     }
 

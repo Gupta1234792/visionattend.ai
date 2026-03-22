@@ -392,6 +392,7 @@ const startLecture = async (req, res) => {
     lecture.status = "LIVE";
     lecture.startedAt = new Date();
     await lecture.save();
+    let linkedSlot = null;
 
     // Check if this lecture matches today's manual timetable
     const batch = parseBatch(lecture.batchId);
@@ -405,7 +406,6 @@ const startLecture = async (req, res) => {
         isActive: true
       }).populate("slots.teacherId", "name email");
 
-      let linkedSlot = null;
       if (todayTimetable) {
         // Find matching slot in today's timetable
         const lectureTime = new Date(lecture.scheduledAt);

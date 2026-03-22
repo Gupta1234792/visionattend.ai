@@ -14,6 +14,7 @@ CORS(app)
 
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.65"))
 REGISTER_THRESHOLD = float(os.getenv("REGISTER_THRESHOLD", "0.70"))
+DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
 LIVENESS_MIN_FRAMES = max(6, int(os.getenv("LIVENESS_MIN_FRAMES", "6")))
 BLINK_MIN_DROP = float(os.getenv("BLINK_MIN_DROP", "0.035"))
 BLINK_RECOVERY_DROP = float(os.getenv("BLINK_RECOVERY_DROP", "0.020"))
@@ -61,6 +62,17 @@ def decode_frame_sequence(frames_value):
     return frames
 
 
+def decode_registration_frames(frames_value):
+    if not isinstance(frames_value, list) or len(frames_value) != 3:
+        raise ValueError("Exactly 3 registration frames are required")
+
+    frames = []
+    for item in frames_value:
+        frames.append(decode_image_payload(item))
+
+    return frames
+
+
 def extract_single_face(frame):
     arcface_model = get_arcface_model()
     faces = arcface_model.get(frame)
@@ -86,8 +98,6 @@ def cosine_similarity(a, b):
 
 def check_duplicate_face(embedding, user_id):
     """Check if face embedding already exists for a different user"""
-    threshold = 0.65
-    
     # Find all faces except current user
     existing_faces = list(faces_col.find({"userId": {"$ne": user_id}}))
     
@@ -101,7 +111,7 @@ def check_duplicate_face(embedding, user_id):
         stored_embedding = np.array(face["embedding"], dtype=np.float32)
         similarity = cosine_similarity(current_embedding, stored_embedding)
         
-        if similarity > threshold:
+        if similarity > DUPLICATE_FACE_THRESHOLD:
             return True, face["userId"]
     
     return False, None
@@ -241,23 +251,52 @@ def register_face():
 
     user_id = str(data.get("userId", "")).strip()
     image = data.get("image")
+    try:
+        frame_sequence = decode_registration_frames(data.get("frames"))
+        blink_frames = decode_frame_sequence(data.get("blinkFrames"))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
 
     if not user_id:
         return jsonify({"success": False, "message": "userId required"}), 400
 
-    frame = decode_image_payload(image)
+    candidate_frames = frame_sequence or [decode_image_payload(image)]
+    faces = []
+    confidences = []
 
-    face, error = extract_single_face(frame)
+    blink_result = analyze_blink_sequence(blink_frames)
+    if not blink_result["ok"]:
+        return jsonify(
+            {
+                "success": False,
+                "message": "Blink verification failed during registration",
+                "livenessPassed": False,
+                "blinkDetected": False,
+                "blinkSignals": blink_result["signals"],
+            }
+        ), 403
 
-    if error:
-        return jsonify({"success": False, "message": error}), 400
+    for frame in candidate_frames:
+        face, error = extract_single_face(frame)
 
-    confidence = registration_quality(face, frame)
+        if error:
+            return jsonify({"success": False, "message": error}), 400
+
+        faces.append(face)
+        confidences.append(registration_quality(face, frame))
+
+    confidence = float(round(sum(confidences) / len(confidences), 4))
 
     if confidence < REGISTER_THRESHOLD:
         return jsonify({"success": False, "message": "Face quality too low"}), 403
 
-    embedding = face.embedding
+    embedding = np.mean(
+        np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
+        axis=0,
+    )
+    norm = np.linalg.norm(embedding)
+    if norm != 0:
+        embedding = embedding / norm
     
     # Check for duplicate face registration
     is_duplicate, existing_user = check_duplicate_face(embedding, user_id)
@@ -285,6 +324,10 @@ def register_face():
             "success": True,
             "message": "Face registered",
             "confidence": confidence,
+            "embedding": embedding.tolist(),
+            "frameCount": len(candidate_frames),
+            "blinkDetected": True,
+            "livenessPassed": True,
         }
     )
 
@@ -332,8 +375,10 @@ def verify_face():
     return jsonify(
         {
             "success": matched,
+            "matched": matched,
             "confidence": score,
             "livenessPassed": True,
+            "blinkDetected": True,
             "blinkSignals": blink_result["signals"],
         }
     ), (200 if matched else 403)

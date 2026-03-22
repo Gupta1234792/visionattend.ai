@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -12,6 +12,8 @@ import {
   AttendanceGeoMap,
   type AttendanceGeoPoint,
 } from "@/src/components/AttendanceGeoMap";
+import { useServiceHealth } from "@/src/hooks/use-service-health";
+import { resolveSocketBaseUrl } from "@/src/services/network";
 
 type Subject = { _id: string; name: string; code: string };
 type YearValue = "FY" | "SY" | "TY" | "FINAL";
@@ -116,6 +118,7 @@ export default function TeacherPage() {
   const [inviteResult, setInviteResult] = useState<{ inviteLink: string; inviteCode: string } | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [guardrails, setGuardrails] = useState<TeacherGuardrails | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
 
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [year, setYear] = useState<YearValue>((user?.year as YearValue) || "FY");
@@ -139,18 +142,28 @@ export default function TeacherPage() {
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const [socketId, setSocketId] = useState("");
+  const healthFetcher = useCallback(async (path: string) => {
+    const res = await fetch(`${resolveSocketBaseUrl()}${path}`, {
+      credentials: "include"
+    });
+    if (!res.ok) {
+      throw new Error("Health check failed");
+    }
+    return res.json();
+  }, []);
+  const { health, loading: healthLoading } = useServiceHealth(healthFetcher);
 
-  const parseApiError = (error: unknown, fallback: string) => {
+  const parseApiError = useCallback((error: unknown, fallback: string) => {
     const maybeMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
     return maybeMessage || fallback;
-  };
-  const pushToast = (text: string, type: "success" | "error" | "info" = "info") => {
+  }, []);
+  const pushToast = useCallback((text: string, type: "success" | "error" | "info" = "info") => {
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setToasts((prev) => [...prev, { id, text, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((item) => item.id !== id));
     }, 3200);
-  };
+  }, []);
 
   const batchKey = user?.department ? buildBatchKey(user.department, year, division) : "";
   const liveRoomId = batchKey ? buildBatchRoomId(batchKey) : "";
@@ -214,6 +227,7 @@ export default function TeacherPage() {
     }
     return items;
   }, [user?.role, guardrails, classroomCoordinators.length, snapshot, activeAttendanceSession]);
+  const activeLectureId = activeLiveLecture?._id || "";
   const classroomGeoPoints = useMemo<AttendanceGeoPoint[]>(
     () =>
       classroomTodayRows
@@ -317,7 +331,7 @@ export default function TeacherPage() {
     setLiveClassActive(false);
   };
 
-  const loadSubjects = async () => {
+  const loadSubjects = useCallback(async () => {
     try {
       const res = await api.get("/subjects/mine");
       const list = res.data.subjects || [];
@@ -328,9 +342,9 @@ export default function TeacherPage() {
     } catch (error) {
       setMessage(parseApiError(error, "Failed to load subjects"));
     }
-  };
+  }, [parseApiError, selectedSubjectId]);
 
-  const loadClassroom = async () => {
+  const loadClassroom = useCallback(async () => {
     if (!batchKey) return;
     try {
       const res = await api.get(`/classroom/${batchKey}`);
@@ -348,9 +362,9 @@ export default function TeacherPage() {
       setClassroomSessions([]);
       setClassroomAttendance([]);
     }
-  };
+  }, [batchKey]);
 
-  const loadAnnouncements = async () => {
+  const loadAnnouncements = useCallback(async () => {
     if (!liveRoomId) return;
     try {
       const res = await api.get(`/chat/room/${liveRoomId}`);
@@ -364,9 +378,9 @@ export default function TeacherPage() {
     } catch {
       setAnnouncements([]);
     }
-  };
+  }, [liveRoomId]);
 
-  const loadMyLectures = async () => {
+  const loadMyLectures = useCallback(async () => {
     try {
       const res = await api.get("/lectures/my");
       const lectures = res.data?.lectures || [];
@@ -377,9 +391,9 @@ export default function TeacherPage() {
       setScheduledLectures([]);
       setActiveLiveLecture(null);
     }
-  };
+  }, []);
 
-  const loadGuardrails = async () => {
+  const loadGuardrails = useCallback(async () => {
     if (user?.role !== "teacher") return;
     try {
       const res = await api.get("/teachers/me/guardrails");
@@ -387,22 +401,25 @@ export default function TeacherPage() {
     } catch {
       setGuardrails(null);
     }
-  };
+  }, [user?.role]);
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const timer = setTimeout(() => {
-      void loadSubjects();
-      void loadGuardrails();
-      void loadClassroom();
-      void loadAnnouncements();
-      void loadMyLectures();
+      void (async () => {
+        setDashboardLoading(true);
+        await Promise.all([
+          loadSubjects(),
+          loadGuardrails(),
+          loadClassroom(),
+          loadAnnouncements(),
+          loadMyLectures()
+        ]);
+        setDashboardLoading(false);
+      })();
     }, 0);
     return () => clearTimeout(timer);
-  }, [year, division, liveRoomId]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [division, loadAnnouncements, loadClassroom, loadGuardrails, loadMyLectures, loadSubjects, liveRoomId, year]);
 
-  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!batchKey) return;
     const interval = setInterval(() => {
@@ -410,8 +427,7 @@ export default function TeacherPage() {
       void loadMyLectures();
     }, 25000);
     return () => clearInterval(interval);
-  }, [batchKey]);
-  /* eslint-enable react-hooks/exhaustive-deps */
+  }, [batchKey, loadClassroom, loadMyLectures]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -522,7 +538,7 @@ export default function TeacherPage() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, user?.college, liveRoomId, mediaRoomId, liveClassActive]);
+  }, [token, user?.college, liveRoomId, mediaRoomId, liveClassActive, loadClassroom, loadMyLectures]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
@@ -601,6 +617,11 @@ export default function TeacherPage() {
       setMessage("No mapped subject found to anchor the daily attendance session.");
       return;
     }
+    if (activeAttendanceSession) {
+      setMessage("Attendance session is already live for this batch.");
+      pushToast("Attendance session already live.", "info");
+      return;
+    }
 
     try {
       const location = await getLocation();
@@ -618,6 +639,7 @@ export default function TeacherPage() {
       if (res.data?.session) {
         setClassroomSessions((prev) => [res.data.session, ...prev]);
       }
+      void loadClassroom();
     } catch (error) {
       const msg = parseApiError(error, "Failed to start attendance session.");
       setMessage(msg);
@@ -690,6 +712,7 @@ export default function TeacherPage() {
       setMessage("Lecture scheduled and shared in classroom chat.");
       pushToast("Lecture scheduled and shared.", "success");
       void loadMyLectures();
+      void loadClassroom();
     } catch (error) {
       const msg = parseApiError(error, "Failed to schedule lecture.");
       setMessage(msg);
@@ -707,6 +730,7 @@ export default function TeacherPage() {
       };
       setActiveLiveLecture(updated);
       await loadMyLectures();
+      await loadClassroom();
       await startLiveClass(updated.meetingRoomId ? buildLectureRoomId(updated.meetingRoomId) : liveRoomId);
       setMessage("Lecture started live. Students can join on the same dashboard.");
       pushToast("Lecture started live.", "success");
@@ -723,6 +747,7 @@ export default function TeacherPage() {
       stopLiveClass();
       setActiveLiveLecture(null);
       await loadMyLectures();
+      await loadClassroom();
       setMessage("Lecture ended successfully.");
       pushToast("Lecture ended.", "info");
     } catch (error) {
@@ -854,7 +879,7 @@ export default function TeacherPage() {
     <ProtectedRoute allow={["teacher", "coordinator"]}>
       <DashboardLayout title={user?.role === "coordinator" ? "Coordinator Classroom Dashboard" : "Teacher Dashboard"}>
         <ToastStack toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((item) => item.id !== id))} />
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {user?.role === "teacher" && guardrails && !guardrails.hasAssignedSubjects ? (
             <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 xl:col-span-2">
               <h2 className="text-base font-semibold text-amber-900">Subject Guardrail Active</h2>
@@ -885,9 +910,42 @@ export default function TeacherPage() {
               </article>
             </div>
           </section>
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">System Health</h2>
+                <p className="mt-1 text-sm text-slate-600">Backend, MongoDB, and OpenCV connection visibility for attendance and face scan.</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${healthLoading ? "bg-slate-100 text-slate-500" : health.backend.ok && health.mongo.ok && health.opencv.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                {healthLoading ? "Checking..." : health.backend.ok && health.mongo.ok && health.opencv.ok ? "Healthy" : "Needs attention"}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {[
+                { label: "Backend", value: health.backend },
+                { label: "MongoDB", value: health.mongo },
+                { label: "OpenCV", value: health.opencv }
+              ].map((item) => (
+                <article key={item.label} className="rounded-2xl border border-white/80 bg-white/85 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{item.label}</p>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${item.value.ok ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                      {item.value.ok ? "Online" : "Offline"}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-slate-900">{item.value.message}</p>
+                </article>
+              ))}
+            </div>
+          </section>
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">My Subjects</h2>
-            {subjects.length === 0 ? (
+            {dashboardLoading ? (
+              <div className="mt-3 space-y-2">
+                <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+              </div>
+            ) : subjects.length === 0 ? (
               <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
                 No subject is mapped to this teacher yet. Ask HOD to assign subjects before attendance/lecture actions.
               </p>
@@ -904,7 +962,16 @@ export default function TeacherPage() {
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Today Classroom Snapshot</h2>
             <p className="mt-2 text-sm text-slate-600">{selectedSubjectName} | {year}-{division}</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {dashboardLoading ? (
+                <>
+                  <div className="h-20 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-20 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-20 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-20 animate-pulse rounded-lg bg-slate-100" />
+                </>
+              ) : (
+                <>
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="text-xs text-slate-500">Students</p>
                 <p className="text-lg font-semibold text-slate-900">{snapshot.totalStudents}</p>
@@ -921,6 +988,8 @@ export default function TeacherPage() {
                 <p className="text-xs text-amber-700">Remote</p>
                 <p className="text-lg font-semibold text-amber-800">{snapshot.remote}</p>
               </div>
+                </>
+              )}
             </div>
             <p className="mt-2 text-xs text-slate-600">
               Absent: {snapshot.absent} | Teachers in batch: {classroomTeachers.length} | Coordinators: {classroomCoordinators.length}
@@ -954,7 +1023,7 @@ export default function TeacherPage() {
                 {divisions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" onClick={createInvite} type="button">
+            <button className="mt-3 min-h-[44px] w-full rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white sm:w-auto" onClick={createInvite} type="button">
               Generate Invite Link
             </button>
             {inviteResult ? (
@@ -1123,11 +1192,11 @@ export default function TeacherPage() {
                 : `Batch room: ${liveRoomId || "N/A"}`}
             </p>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white" type="button" onClick={() => void startLiveClass()}>
+            <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+              <button className="min-h-[44px] w-full rounded-lg bg-[#135ed8] px-3 py-3 text-sm font-semibold text-white sm:w-auto" type="button" onClick={() => void startLiveClass()}>
                 {activeLiveLecture ? "Resume Live Lecture Room" : "Start Live Class"}
               </button>
-              <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={stopLiveClass}>
+              <button className="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-3 text-sm sm:w-auto" type="button" onClick={stopLiveClass}>
                 End Live Class
               </button>
             </div>
@@ -1179,7 +1248,20 @@ export default function TeacherPage() {
 
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <h2 className="text-base font-semibold">My Scheduled Lectures</h2>
+            {activeLiveLecture ? (
+              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <p className="font-semibold">Current active lecture</p>
+                <p className="mt-1">{activeLiveLecture.title} | {activeLiveLecture.subjectId?.name || "-"} | {new Date(activeLiveLecture.scheduledAt).toLocaleString()}</p>
+              </div>
+            ) : null}
             <div className="mt-3 overflow-x-auto">
+              {dashboardLoading ? (
+                <div className="space-y-2">
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                </div>
+              ) : (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -1198,7 +1280,7 @@ export default function TeacherPage() {
                     const status = getLectureStatus(lecture);
                     const rawStatus = String(lecture.status || "").toUpperCase();
                     return (
-                    <tr key={lecture._id} className="border-b border-slate-100">
+                    <tr key={lecture._id} className={`border-b ${lecture._id === activeLectureId || rawStatus === "LIVE" ? "border-red-100 bg-red-50/70" : "border-slate-100"}`}>
                       <td className="py-2">{lecture.title}</td>
                       <td className="py-2">{lecture.subjectId?.name || "-"}</td>
                       <td className="py-2">{new Date(lecture.scheduledAt).toLocaleString()}</td>
@@ -1248,6 +1330,7 @@ export default function TeacherPage() {
                   ) : null}
                 </tbody>
               </table>
+              )}
             </div>
           </section>
 
@@ -1273,6 +1356,11 @@ export default function TeacherPage() {
             ) : (
               <p className="mt-2 text-xs text-slate-500">No active daily attendance session for this batch today.</p>
             )}
+            {activeAttendanceSession ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Session already live for this batch. Students can scan attendance now, so starting again is blocked.
+              </div>
+            ) : null}
             <div className="mt-3 rounded-lg border border-[#135ed8]/25 bg-[#135ed8]/5 px-3 py-2 text-xs text-slate-700">
               Daily attendance is anchored internally to the first mapped subject for compatibility, but students mark attendance only once for the day.
             </div>
@@ -1285,8 +1373,8 @@ export default function TeacherPage() {
               </select>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button className="rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={startAttendance} disabled={subjects.length === 0 || (user?.role === "teacher" && guardrails?.canStartAttendance === false)}>Start Attendance</button>
+            <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+              <button className="min-h-[44px] w-full rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto" type="button" onClick={startAttendance} disabled={dashboardLoading || Boolean(activeAttendanceSession) || subjects.length === 0 || (user?.role === "teacher" && guardrails?.canStartAttendance === false)}>Start Attendance</button>
             </div>
           </section>
 
@@ -1294,6 +1382,13 @@ export default function TeacherPage() {
             <h2 className="text-base font-semibold">Live Attendance Stream (Today)</h2>
             <p className="mt-2 text-sm text-slate-600">Realtime-like rows from backend refresh. Present/Remote/Absent with geo flags.</p>
             <div className="mt-3 overflow-x-auto">
+              {dashboardLoading ? (
+                <div className="space-y-2">
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                </div>
+              ) : (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -1327,6 +1422,7 @@ export default function TeacherPage() {
                   ) : null}
                 </tbody>
               </table>
+              )}
             </div>
           </section>
 

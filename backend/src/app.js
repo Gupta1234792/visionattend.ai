@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
+const mongoose = require("mongoose");
 require("dotenv").config();
 
 const authRoutes = require("./routes/auth.routes");
@@ -32,7 +33,7 @@ const timetableRoutes = require("./routes/timetable.routes");
 const webhookRoutes = require("./routes/webhook.routes");
 const { authRateLimit, inviteRateLimit, attendanceRateLimit } = require("./middlewares/rateLimit.middleware");
 const { checkOpenCvHealth } = require("./startup/opencv");
-const { loadFaceCache } = require("./utils/faceCache");
+const { getMongoState } = require("./config/db");
 
 const app = express();
 const FRONTEND_URLS = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.6:3000")
@@ -103,7 +104,11 @@ app.use("/api/webhooks", webhookRoutes);
 app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "VisionAttend backend running"
+    message: "VisionAttend backend running",
+    db: {
+      connected: mongoose.connection.readyState === 1,
+      ...getMongoState(),
+    }
   });
 });
 
@@ -123,32 +128,40 @@ app.get("/health/opencv", async (req, res) => {
   });
 });
 
-// Initialize face cache on server start
-(async () => {
-  try {
-    const { loadFaceCache } = require("./utils/faceCache");
-    await loadFaceCache();
-    console.log("Face cache initialized on server start");
-  } catch (error) {
-    console.error("Failed to initialize face cache:", error);
-  }
-})();
+app.get("/health/stack", async (req, res) => {
+  let mongoOk = false;
+  let mongoMessage = "MongoDB disconnected";
 
-// Create database indexes for performance optimization
-(async () => {
   try {
-    const AttendanceSession = require("./models/AttendanceSession.model");
-    const AttendanceRecord = require("./models/AttendanceRecord.model");
-    
-    await AttendanceSession.collection.createIndex({ createdAt: 1, subject: 1 });
-    await AttendanceRecord.collection.createIndex({ session: 1, student: 1 });
-    await AttendanceSession.collection.createIndex({ batchKey: 1, startTime: 1 });
-    await AttendanceRecord.collection.createIndex({ student: 1, session: 1 });
-    
-    console.log("Database indexes created successfully");
+    if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+      await mongoose.connection.db.admin().ping();
+      mongoOk = true;
+      mongoMessage = "MongoDB reachable";
+    }
   } catch (error) {
-    console.warn("Index creation warning:", error.message);
+    mongoMessage = error?.message || "MongoDB ping failed";
   }
-})();
+
+  const opencvReport = await checkOpenCvHealth();
+  const stackOk = mongoOk && opencvReport.ok;
+
+  return res.status(stackOk ? 200 : 503).json({
+    success: stackOk,
+    backend: {
+      ok: true,
+      message: "Backend running"
+    },
+    mongo: {
+      ok: mongoOk,
+      message: mongoMessage,
+      readyState: mongoose.connection.readyState
+    },
+    opencv: {
+      ok: opencvReport.ok,
+      message: opencvReport.message,
+      healthUrl: opencvReport.healthUrl || null
+    }
+  });
+});
 
 module.exports = app;

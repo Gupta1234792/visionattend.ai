@@ -1,4 +1,4 @@
-const { faces } = require("./mongo");
+const { getFacesCollection } = require("./mongo");
 
 // In-memory face cache for performance
 const faceCache = new Map();
@@ -19,6 +19,7 @@ const cosineSimilarity = (a, b) => {
 // Helper function to load embeddings into cache
 const loadFaceCache = async () => {
   try {
+    const faces = getFacesCollection();
     const embeddings = await faces.find({}, { userId: 1, embedding: 1 }).toArray();
     
     faceCache.clear();

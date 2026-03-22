@@ -1,4 +1,7 @@
 const mongoose = require("mongoose");
+const { hashPassword } = require("../utils/password");
+
+const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$/;
 
 const userSchema = new mongoose.Schema(
   {
@@ -49,7 +52,8 @@ faceRegisteredAt: {
       type: String,
       required: true,
       unique: true,
-      lowercase: true
+      lowercase: true,
+      trim: true
     },
 
     password: {
@@ -89,5 +93,25 @@ faceRegisteredAt: {
   },
   { timestamps: true }
 );
+
+userSchema.pre("save", async function hashPasswordOnSave(next) {
+  try {
+    if (!this.isModified("password")) {
+      next();
+      return;
+    }
+
+    const currentPassword = String(this.password || "");
+    if (!currentPassword || BCRYPT_HASH_PATTERN.test(currentPassword)) {
+      next();
+      return;
+    }
+
+    this.password = await hashPassword(currentPassword);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 module.exports = mongoose.model("User", userSchema);

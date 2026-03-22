@@ -43,6 +43,34 @@ const studentInviteSchema = new mongoose.Schema(
       ref: "User",
       required: true
     },
+    studentName: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    studentEmail: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      default: ""
+    },
+    tempPassword: {
+      type: String,
+      default: ""
+    },
+    rollNo: {
+      type: String,
+      trim: true,
+      default: ""
+    },
+    inviteToken: {
+      type: String,
+      default: ""
+    },
+    isActivated: {
+      type: Boolean,
+      default: false
+    },
 
     expiresAt: {
       type: Date,

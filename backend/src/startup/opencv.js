@@ -1,18 +1,60 @@
+const normalizeBaseUrl = (value) => String(value || "").trim().replace(/\/+$/, "");
+
+const withLocalhostFallback = (url) => {
+  if (!url) return [];
+
+  const candidates = [url];
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "opencv-ai" || parsed.hostname === "vision_ai") {
+      candidates.push(url.replace(parsed.hostname, "localhost"));
+      candidates.push(url.replace(parsed.hostname, "127.0.0.1"));
+    }
+  } catch {}
+
+  return [...new Set(candidates)];
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getOpencvEndpointCandidates = (kind) => {
+  const verifyUrl = normalizeBaseUrl(process.env.OPENCV_VERIFY_URL);
+  const registerUrl = normalizeBaseUrl(
+    process.env.OPENCV_REGISTER_URL ||
+      (verifyUrl ? verifyUrl.replace(/\/verify\/?$/, "/register") : ""),
+  );
+
+  if (kind === "verify") {
+    return withLocalhostFallback(verifyUrl);
+  }
+
+  if (kind === "register") {
+    return withLocalhostFallback(registerUrl);
+  }
+
+  return [];
+};
+
 const resolveOpencvHealthUrl = () => {
-  const verifyUrl = process.env.OPENCV_VERIFY_URL || "";
+  const verifyCandidates = getOpencvEndpointCandidates("verify");
+  const verifyUrl = verifyCandidates[0] || "";
   if (!verifyUrl) return "";
 
   if (verifyUrl.endsWith("/verify")) {
     return verifyUrl.replace(/\/verify\/?$/, "/health");
   }
-  return `${verifyUrl.replace(/\/$/, "")}/health`;
+  return `${verifyUrl}/health`;
 };
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const checkOpenCvHealth = async () => {
-  const healthUrl = resolveOpencvHealthUrl();
-  if (!healthUrl) {
+  const candidateHealthUrls = getOpencvEndpointCandidates("verify").map((verifyUrl) =>
+    verifyUrl.endsWith("/verify")
+      ? verifyUrl.replace(/\/verify\/?$/, "/health")
+      : `${verifyUrl}/health`,
+  );
+
+  if (!candidateHealthUrls.length) {
     const message = "OPENCV_VERIFY_URL missing. Face scan routes will be unavailable.";
     console.error(message);
     return { ok: false, healthUrl: null, message };
@@ -24,35 +66,72 @@ const checkOpenCvHealth = async () => {
 
   let lastMessage = "";
 
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      const response = await fetch(healthUrl, {
-        method: "GET",
-        signal: AbortSignal.timeout(timeoutMs)
-      });
-      if (!response.ok) {
-        lastMessage = `OpenCV health check failed with status ${response.status} at ${healthUrl}`;
-      } else {
-        const payload = await response.json().catch(() => ({}));
-        const message = `OpenCV service healthy at ${healthUrl}`;
-        console.log(message);
-        return { ok: true, healthUrl, payload, message };
+  for (const healthUrl of candidateHealthUrls) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch(healthUrl, {
+          method: "GET",
+          signal: AbortSignal.timeout(timeoutMs)
+        });
+        if (!response.ok) {
+          lastMessage = `OpenCV health check failed with status ${response.status} at ${healthUrl}`;
+        } else {
+          const payload = await response.json().catch(() => ({}));
+          const message = `OpenCV service healthy at ${healthUrl}`;
+          console.log(message);
+          return { ok: true, healthUrl, payload, message };
+        }
+      } catch (error) {
+        lastMessage = `OpenCV health check unreachable at ${healthUrl}: ${error?.message || error}`;
       }
-    } catch (error) {
-      lastMessage = `OpenCV health check unreachable at ${healthUrl}: ${error?.message || error}`;
-    }
 
-    if (attempt < attempts) {
-      console.warn(`${lastMessage}. Retrying (${attempt}/${attempts})...`);
-      await sleep(delayMs);
+      if (attempt < attempts) {
+        console.warn(`${lastMessage}. Retrying (${attempt}/${attempts})...`);
+        await sleep(delayMs);
+      }
     }
   }
 
   console.error(lastMessage);
-  return { ok: false, healthUrl, message: lastMessage };
+  return { ok: false, healthUrl: candidateHealthUrls[0] || null, message: lastMessage };
+};
+
+const postToOpenCv = async (kind, payload, options = {}) => {
+  const candidateUrls = getOpencvEndpointCandidates(kind);
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs || 15000));
+  const headers = {
+    "Content-Type": "application/json",
+    "x-opencv-key": process.env.OPENCV_API_KEY || "",
+    ...(options.headers || {})
+  };
+
+  if (!candidateUrls.length) {
+    throw new Error(`OpenCV ${kind} endpoint not configured`);
+  }
+
+  let lastError = null;
+
+  for (const url of candidateUrls) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      const data = await response.json().catch(() => ({}));
+      return { response, data, url };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error(`OpenCV ${kind} request failed`);
 };
 
 module.exports = {
   checkOpenCvHealth,
-  resolveOpencvHealthUrl
+  resolveOpencvHealthUrl,
+  getOpencvEndpointCandidates,
+  postToOpenCv
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { UserRole } from "@/src/services/auth";
 import { useAuth } from "@/src/context/auth-context";
@@ -22,84 +22,69 @@ export function ProtectedRoute({
     devBypassEnabled &&
     (sessionStorage.getItem("va_dev_face_verified") === "true" ||
       localStorage.getItem("va_dev_face_verified") === "true");
+  const [readyKey, setReadyKey] = useState("");
+  const accessKey = `${token}:${user?.id || ""}:${pathname}:${allow.join(",")}:${devFaceBypassed ? "1" : "0"}`;
 
   useEffect(() => {
-    if (loading) return;
-    if (!token || !user) {
-      router.replace("/auth");
-      return;
-    }
-    if (!allow.includes(user.role)) {
-      router.replace(`/${user.role}`);
-      return;
-    }
+    let cancelled = false;
 
-    // Enhanced student face registration check
-    const studentFacePending =
-      user.role === "student" &&
-      !user.faceRegistered &&
-      !devFaceBypassed &&
-      pathname !== "/student/face-register" &&
-      pathname !== "/student/register" &&
-      pathname !== "/student";
+    const guard = async () => {
+      if (loading) return;
 
-    if (studentFacePending) {
-      // Redirect to face registration with a delay to allow proper state sync
-      setTimeout(() => {
-        router.replace("/student/face-register");
-      }, 100);
-      return;
-    }
+      if (!token || !user) {
+        router.replace("/auth");
+        return;
+      }
 
-    // If student is on dashboard but not registered, redirect to face registration
-    if (user.role === "student" && !user.faceRegistered && !devFaceBypassed && pathname === "/student") {
-      setTimeout(() => {
-        router.replace("/student/face-register");
-      }, 100);
-      return;
-    }
-  }, [allow, token, user, loading, router, pathname, devFaceBypassed]);
+      if (!allow.includes(user.role)) {
+        router.replace(`/${user.role}`);
+        return;
+      }
 
-  useEffect(() => {
-    if (loading || !token || !user || user.role !== "student") return;
+      if (user.role !== "student" || devFaceBypassed) {
+        if (!cancelled) setReadyKey(accessKey);
+        return;
+      }
 
-    const syncFaceStatus = async () => {
+      let faceRegistered = Boolean(user.faceRegistered);
       try {
         const res = await api.get("/students/me");
-        const faceRegistered = Boolean(res.data?.student?.faceRegisteredAt);
-        if (faceRegistered === Boolean(user.faceRegistered)) return;
-
+        faceRegistered = Boolean(res.data?.student?.faceRegisteredAt);
         const rawUser = localStorage.getItem("va_user");
-        if (!rawUser) return;
-        const parsed = JSON.parse(rawUser) as typeof user;
-        parsed.faceRegistered = faceRegistered;
-        localStorage.setItem("va_user", JSON.stringify(parsed));
-
-        // Enhanced redirect logic
-        if (!faceRegistered && !devFaceBypassed) {
-          if (pathname !== "/student/face-register" && pathname !== "/student/register") {
-            setTimeout(() => {
-              router.replace("/student/face-register");
-            }, 100);
-          }
+        if (rawUser) {
+          const parsed = JSON.parse(rawUser) as typeof user;
+          parsed.faceRegistered = faceRegistered;
+          localStorage.setItem("va_user", JSON.stringify(parsed));
         }
       } catch {
-        // keep existing local session state if profile sync fails
+        faceRegistered = Boolean(user.faceRegistered);
       }
+
+      const allowedWithoutFace =
+        pathname === "/student/face-register" ||
+        pathname === "/student/register";
+
+      if (!faceRegistered && !allowedWithoutFace) {
+        router.replace("/student/face-register");
+        return;
+      }
+
+      if (faceRegistered && pathname === "/student/face-register") {
+        router.replace("/student/dashboard");
+        return;
+      }
+
+      if (!cancelled) setReadyKey(accessKey);
     };
 
-    void syncFaceStatus();
-  }, [loading, token, user, router, pathname, devFaceBypassed]);
+    void guard();
 
-  const studentFacePending =
-    user?.role === "student" &&
-    !user.faceRegistered &&
-    !devFaceBypassed &&
-    pathname !== "/student/face-register" &&
-    pathname !== "/student/register" &&
-    pathname !== "/student";
+    return () => {
+      cancelled = true;
+    };
+  }, [accessKey, allow, devFaceBypassed, loading, pathname, router, token, user]);
 
-  if (loading || !token || !user || !allow.includes(user.role) || studentFacePending) {
+  if (loading || !token || !user || !allow.includes(user.role) || readyKey !== accessKey) {
     return <div className="p-6 text-sm text-slate-600">Loading...</div>;
   }
 

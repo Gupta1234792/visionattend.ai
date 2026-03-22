@@ -1,13 +1,11 @@
 const User = require("../models/User.model");
 const StudentInvite = require("../models/StudentInvite.model");
 const { hashPassword } = require("../utils/password");
+const { generateToken } = require("../utils/jwt");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { updateFaceCache } = require("../utils/faceCache");
+const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.7;
-const OPENCV_REGISTER_URL = process.env.OPENCV_REGISTER_URL ||
-  (process.env.OPENCV_VERIFY_URL
-    ? process.env.OPENCV_VERIFY_URL.replace(/\/verify\/?$/, "/register")
-    : "");
 const DEV_MODE = process.env.DEV_MODE === "true";
 
 // ================= VALIDATE STUDENT INVITE =================
@@ -46,7 +44,12 @@ const validateInviteToken = async (req, res) => {
         college: invite.college,
         department: invite.department,
         year: invite.year,
-        division: invite.division
+        division: invite.division,
+        studentName: invite.studentName || "",
+        studentEmail: invite.studentEmail || "",
+        rollNo: invite.rollNo || "",
+        hasDirectActivation: Boolean(invite.studentEmail && invite.tempPassword && invite.rollNo),
+        isActivated: Boolean(invite.isActivated)
       }
     });
   } catch (error) {
@@ -65,10 +68,10 @@ const registerStudent = async (req, res) => {
     const normalizedToken = String(token || "").trim().toLowerCase();
     const normalizedCode = String(inviteCode || "").trim().toUpperCase();
 
-    if (!normalizedToken || !normalizedCode || !name || !email || !password || !rollNo) {
+    if (!normalizedToken) {
       return res.status(400).json({
         success: false,
-        message: "Invite token, invite code and required fields are missing"
+        message: "Invite token is required"
       });
     }
 
@@ -80,14 +83,28 @@ const registerStudent = async (req, res) => {
         message: "Invalid or expired invite token"
       });
     }
-    if (!invite.inviteCode || String(invite.inviteCode).toUpperCase() !== normalizedCode) {
+    const directInvite = Boolean(invite.studentEmail && invite.tempPassword && invite.rollNo);
+
+    if (!directInvite && (!normalizedCode || !invite.inviteCode || String(invite.inviteCode).toUpperCase() !== normalizedCode)) {
       return res.status(400).json({
         success: false,
         message: "Invalid invite code for this invite link"
       });
     }
 
-    const existingStudent = await User.findOne({ email });
+    const finalName = String(name || invite.studentName || "").trim();
+    const finalEmail = String(email || invite.studentEmail || "").trim().toLowerCase();
+    const finalPassword = String(password || invite.tempPassword || "").trim();
+    const finalRollNo = String(rollNo || invite.rollNo || "").trim();
+
+    if (!finalName || !finalEmail || !finalPassword || !finalRollNo) {
+      return res.status(400).json({
+        success: false,
+        message: "Student details are incomplete for activation"
+      });
+    }
+
+    const existingStudent = await User.findOne({ email: finalEmail });
     if (existingStudent) {
       return res.status(409).json({
         success: false,
@@ -95,14 +112,28 @@ const registerStudent = async (req, res) => {
       });
     }
 
-    const hashedPassword = await hashPassword(password);
+    const existingRollNo = await User.findOne({
+      department: invite.department,
+      year: invite.year,
+      division: invite.division,
+      rollNo: finalRollNo
+    });
+
+    if (existingRollNo) {
+      return res.status(409).json({
+        success: false,
+        message: "Roll number already exists in this class"
+      });
+    }
+
+    const hashedPassword = await hashPassword(finalPassword);
 
     const student = await User.create({
-      name,
-      email,
+      name: finalName,
+      email: finalEmail,
       password: hashedPassword,
       role: "student",
-      rollNo,
+      rollNo: finalRollNo,
       parentEmail: parentEmail || null,
       college: invite.college,
       department: invite.department,
@@ -112,9 +143,22 @@ const registerStudent = async (req, res) => {
       faceRegisteredAt: null
     });
 
+    invite.isUsed = true;
+    invite.isActivated = false;
+    invite.studentName = finalName;
+    invite.studentEmail = finalEmail;
+    invite.rollNo = finalRollNo;
+    await invite.save();
+
+    const authToken = generateToken({
+      userId: student._id,
+      role: student.role
+    });
+
     return res.status(201).json({
       success: true,
-      message: "Student registered successfully. Please complete face registration to access dashboard.",
+      message: "Student registered successfully. Continue with face registration.",
+      token: authToken,
       student: {
         id: student._id,
         name: student.name,
@@ -123,7 +167,19 @@ const registerStudent = async (req, res) => {
         year: student.year,
         division: student.division,
         faceRegistered: false
-      }
+      },
+      user: {
+        id: student._id,
+        name: student.name,
+        email: student.email,
+        role: student.role,
+        college: student.college || null,
+        department: student.department || null,
+        year: student.year || null,
+        division: student.division || null,
+        faceRegistered: false
+      },
+      nextStep: "/student/face-register"
     });
   } catch (error) {
     console.error("Student registration error:", error);
@@ -214,23 +270,39 @@ const resolveInviteCode = async (req, res) => {
 
 const registerStudentFace = async (req, res) => {
   try {
-    const { image } = req.body;
+    const { image, frames, blinkFrames } = req.body;
+    const validFrames = Array.isArray(frames)
+      ? frames.filter((frame) => typeof frame === "string" && frame.startsWith("data:image/"))
+      : [];
+    const validBlinkFrames = Array.isArray(blinkFrames)
+      ? blinkFrames.filter((frame) => typeof frame === "string" && frame.startsWith("data:image/"))
+      : [];
+    const primaryImage = typeof image === "string" && image.startsWith("data:image/")
+      ? image
+      : validFrames[0] || "";
 
-    if (!image || typeof image !== "string") {
+    if (!primaryImage) {
       return res.status(400).json({
         success: false,
         message: "Face image is required"
       });
     }
 
-    if (!image.startsWith("data:image/")) {
+    if (validFrames.length !== 3) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image format"
+        message: "Exactly 3 registration frames are required"
       });
     }
 
-    const parts = image.split(",");
+    if (validBlinkFrames.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Blink verification frames are required"
+      });
+    }
+
+    const parts = primaryImage.split(",");
     if (parts.length !== 2 || !parts[1]) {
       return res.status(400).json({
         success: false,
@@ -276,36 +348,27 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    if (!OPENCV_REGISTER_URL) {
+    if (!getOpencvEndpointCandidates("register").length) {
       return res.status(503).json({
         success: false,
         message: "OpenCV register service not configured"
       });
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const registerRes = await fetch(OPENCV_REGISTER_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-opencv-key": process.env.OPENCV_API_KEY || ""
-      },
-      body: JSON.stringify({
+    const { response: registerRes, data: registerData } = await postToOpenCv(
+      "register",
+      {
         userId: String(student._id),
         collegeId: student.college ? String(student.college) : "",
         departmentId: student.department ? String(student.department) : "",
         year: student.year || "",
         division: student.division || "",
-        image
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    const registerData = await registerRes.json().catch(() => ({}));
+        image: primaryImage,
+        frames: validFrames,
+        blinkFrames: validBlinkFrames
+      },
+      { timeoutMs: 10000 }
+    );
 
     const confidenceValue = Number(registerData?.confidence);
     const embedding = registerData?.embedding;
@@ -325,6 +388,11 @@ const registerStudentFace = async (req, res) => {
 
     student.faceRegisteredAt = new Date();
     await student.save();
+
+    await StudentInvite.updateMany(
+      { studentEmail: String(student.email || "").toLowerCase(), isActive: true },
+      { $set: { isActivated: true, isUsed: true } }
+    );
 
     /* 🔥 CRITICAL CACHE FIX */
     try {
@@ -358,7 +426,9 @@ const registerStudentFace = async (req, res) => {
       success: true,
       message: "Face registration completed",
       faceRegistered: true,
-      confidence: confidenceValue
+      confidence: confidenceValue,
+      frameCount: validFrames.length,
+      blinkVerified: true
     });
 
   } catch (error) {

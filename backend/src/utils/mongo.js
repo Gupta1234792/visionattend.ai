@@ -1,44 +1,63 @@
-const { MongoClient, ASCENDING } = require("mongodb");
-const dotenv = require("dotenv");
+const mongoose = require("mongoose");
 
-// Load environment variables
-dotenv.config();
-
-const MONGO_URI = process.env.MONGO_URI;
-
-if (!MONGO_URI) {
-  throw new Error("❌ MONGO_URI is missing. Check your .env file");
-}
-
-const client = new MongoClient(MONGO_URI, {
-  serverSelectionTimeoutMS: 5000,
-  connectTimeoutMS: 5000,
-  maxPoolSize: 50,
-});
-
-const db = client.db("vision_attendance");
-const faces = db.collection("faces");
-
-// Faster face lookup for register/verify endpoints.
-async function createIndexes() {
-  try {
-    await faces.createIndex({ userId: ASCENDING }, { name: "idx_faces_user" });
-    await faces.createIndex({ subjectId: ASCENDING }, { name: "idx_faces_subject" });
-    await faces.createIndex(
-      { userId: ASCENDING, subjectId: ASCENDING },
-      { name: "idx_faces_user_subject" }
-    );
-    console.log("✅ MongoDB indexes created successfully");
-  } catch (error) {
-    console.error("❌ Failed to create MongoDB indexes:", error);
+const getFacesCollection = () => {
+  if (!mongoose.connection.db) {
+    throw new Error("MongoDB is not connected");
   }
-}
 
-// Initialize indexes when module loads
-createIndexes();
+  // Reuse the active Mongoose connection instead of opening a second Mongo client.
+  return mongoose.connection.db.collection("faces");
+};
+
+const dropInvalidIndexes = async (collection) => {
+  const indexes = await collection.indexes().catch(() => []);
+
+  for (const index of indexes) {
+    const key = index?.key || {};
+    const invalidUserId = Object.prototype.hasOwnProperty.call(key, "userId") && key.userId == null;
+    const invalidSubjectId = Object.prototype.hasOwnProperty.call(key, "subjectId") && key.subjectId == null;
+
+    if (invalidUserId || invalidSubjectId) {
+      await collection.dropIndex(index.name).catch((error) => {
+        console.warn(`[db] failed to drop invalid index ${index.name}: ${error.message || error}`);
+      });
+    }
+  }
+};
+
+const ensureNamedIndex = async (collection, name, key) => {
+  try {
+    const indexes = await collection.indexes().catch(() => []);
+    const existing = indexes.find((item) => item.name === name);
+
+    if (existing) {
+      const currentKey = JSON.stringify(existing.key || {});
+      const nextKey = JSON.stringify(key);
+      if (currentKey !== nextKey) {
+        await collection.dropIndex(name).catch(() => null);
+      }
+    }
+
+    await collection.createIndex(key, { name });
+  } catch (error) {
+    console.error(`[db] index ${name} failed: ${error.message || error}`);
+  }
+};
+
+const ensureFaceIndexes = async () => {
+  try {
+    const faces = getFacesCollection();
+    await dropInvalidIndexes(faces);
+    await ensureNamedIndex(faces, "idx_faces_user", { userId: 1 });
+    await ensureNamedIndex(faces, "idx_faces_subject", { subjectId: 1 });
+    await ensureNamedIndex(faces, "idx_faces_user_subject", { userId: 1, subjectId: 1 });
+    console.log("[db] face indexes ready");
+  } catch (error) {
+    console.error(`[db] face index setup skipped: ${error.message || error}`);
+  }
+};
 
 module.exports = {
-  client,
-  db,
-  faces,
+  getFacesCollection,
+  ensureFaceIndexes,
 };

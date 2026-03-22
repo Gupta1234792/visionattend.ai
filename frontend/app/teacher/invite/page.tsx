@@ -27,6 +27,10 @@ export default function TeacherInvitePage() {
   const [message, setMessage] = useState("Invite management ready.");
   const [year, setYear] = useState<YearValue>((user?.year as YearValue) || "FY");
   const [division, setDivision] = useState(user?.division || "A");
+  const [studentName, setStudentName] = useState("");
+  const [studentEmail, setStudentEmail] = useState("");
+  const [rollNo, setRollNo] = useState("");
+  const [password, setPassword] = useState("");
   const [inviteResult, setInviteResult] = useState<{ inviteLink: string; inviteCode: string } | null>(null);
   const [invites, setInvites] = useState<InviteRow[]>([]);
 
@@ -63,14 +67,18 @@ export default function TeacherInvitePage() {
       const res = await api.post("/student-invite", {
         departmentId: user.department,
         year,
-        division
+        division,
+        studentName,
+        studentEmail,
+        rollNo,
+        password
       });
 
       setInviteResult({
         inviteLink: res.data?.inviteLink || "",
         inviteCode: res.data?.inviteCode || res.data?.invite?.inviteCode || ""
       });
-      setMessage("Invite generated/reused successfully.");
+      setMessage(res.data?.emailSent ? "Smart invite sent successfully." : "Invite generated/reused successfully.");
       void loadInvites();
     } catch (error) {
       setMessage(parseApiError(error, "Failed to generate invite."));
@@ -125,6 +133,15 @@ export default function TeacherInvitePage() {
               <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={division} onChange={(e) => setDivision(e.target.value)}>
                 {divisions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
+            </div>
+
+            <div className="mt-3 grid gap-2">
+              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Student name (optional for smart invite)" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
+              <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Student email" value={studentEmail} onChange={(e) => setStudentEmail(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Roll no" value={rollNo} onChange={(e) => setRollNo(e.target.value)} />
+                <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Temporary password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </div>
             </div>
 
             <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="button" onClick={createInvite}>

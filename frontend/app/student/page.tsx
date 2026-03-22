@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Socket } from "socket.io-client";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
 import { ToastItem, ToastStack } from "@/src/components/toast-stack";
 import { DashboardLayout } from "@/src/layouts/dashboard-layout";
 import { useAuth } from "@/src/context/auth-context";
-import { useRouter } from "next/navigation";
 import {
   AttendanceHeatmap,
   type HeatmapPoint,
@@ -23,8 +22,9 @@ import {
   buildLectureRoomId,
   connectCollegeSocket,
 } from "@/src/services/socket";
+import { useCameraStream } from "@/src/hooks/use-camera-stream";
+import { getConfidenceUi, isMobileUnsafeCameraContext, mapFaceErrorMessage } from "@/src/utils/demo-ux";
 
-type Subject = { _id: string; name: string; code: string };
 type AttendanceHistoryRow = { subject?: string; percentage?: number };
 type DailyAttendanceRow = {
   sessionId: string;
@@ -36,6 +36,18 @@ type DailyAttendanceRow = {
   distanceMeters?: number | null;
   gpsDistance?: number | null;
   markedAt?: string | null;
+};
+type TimetableSlotRow = {
+  startTime: string;
+  endTime?: string;
+  subject: string;
+  teacherName?: string;
+  type?: string;
+};
+type TodaysTimetableRow = {
+  classLabel?: string;
+  date?: string;
+  slots?: TimetableSlotRow[];
 };
 type BatchLecture = {
   _id: string;
@@ -107,6 +119,25 @@ type AttendanceStartPayload = {
   endTime?: string;
   teacherName?: string;
   teacherEmail?: string;
+};
+
+const isLiveLectureRow = (lecture: BatchLecture) =>
+  String(lecture.status || "").toUpperCase() === "LIVE";
+
+const isLectureHistoryItem = (lecture: BatchLecture) => {
+  const status = String(lecture.status || "").toUpperCase();
+  if (status === "ENDED" || status === "CANCELED") return true;
+
+  const startedAtValue = lecture.startedAt || lecture.scheduledAt;
+  const startedAtMs = new Date(startedAtValue || 0).getTime();
+  const durationMs = Number(lecture.durationMinutes || 0) * 60 * 1000;
+  if (!startedAtMs || !durationMs) return false;
+
+  const endedAtMs = lecture.endedAt
+    ? new Date(lecture.endedAt).getTime()
+    : startedAtMs + durationMs;
+
+  return endedAtMs < Date.now();
 };
 
 type SpeechRecognitionResultLike = {
@@ -335,12 +366,9 @@ const renderMessageMarkdown = (
 };
 
 export default function StudentPage() {
-  const router = useRouter();
   const { user, token } = useAuth();
   const [message, setMessage] = useState("Student dashboard ready.");
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [activeSessionId, setActiveSessionId] = useState("");
   const [activeSessionMeta, setActiveSessionMeta] =
     useState<ActiveSessionMeta | null>(null);
@@ -363,7 +391,13 @@ export default function StudentPage() {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [faceHint, setFaceHint] = useState("");
-  const [todaysTimetable, setTodaysTimetable] = useState<any>(null);
+  const [scanStage, setScanStage] = useState<"idle" | "capturing" | "verifying" | "success">("idle");
+  const [showAttendanceSuccess, setShowAttendanceSuccess] = useState(false);
+  const [scanCountdownValue, setScanCountdownValue] = useState<number | null>(null);
+  const [isCameraLaunching, setIsCameraLaunching] = useState(false);
+  const [lastFaceConfidence, setLastFaceConfidence] = useState<number | null>(null);
+  const [lowLightWarning, setLowLightWarning] = useState("");
+  const [todaysTimetable, setTodaysTimetable] = useState<TodaysTimetableRow | null>(null);
   const allowManualBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
   const [botMessages, setBotMessages] = useState<BotMessage[]>([
     {
@@ -385,17 +419,21 @@ export default function StudentPage() {
   const [miniHeatmapData, setMiniHeatmapData] = useState<HeatmapPoint[]>([]);
   const [miniAttendanceRate, setMiniAttendanceRate] = useState(0);
   const [lectureBannerSeconds, setLectureBannerSeconds] = useState(0);
-  const [faceRegistered, setFaceRegistered] = useState<boolean | null>(null);
   const [timetableLoading, setTimetableLoading] = useState(false);
+  const [attendanceCardLoading, setAttendanceCardLoading] = useState(true);
 
   const [isPolling, setIsPolling] = useState(false);
-
-  const attendanceVideoRef = useRef<HTMLVideoElement | null>(null);
-  const attendanceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const attendanceStreamRef = useRef<MediaStream | null>(null);
   const activeSessionIdRef = useRef("");
-  const [cameraOpen, setCameraOpen] = useState(false);
   const [isLiveScanRunning, setIsLiveScanRunning] = useState(false);
+  const {
+    videoRef: attendanceVideoRef,
+    canvasRef: attendanceCanvasRef,
+    isOpen: cameraOpen,
+    openCamera: openAttendanceCameraStream,
+    closeCamera: closeAttendanceCamera,
+    captureFrame,
+    handleReady: handleAttendanceVideoReady,
+  } = useCameraStream();
 
   const [liveClassActive, setLiveClassActive] = useState(false);
   const [remoteStreams, setRemoteStreams] = useState<
@@ -409,15 +447,17 @@ export default function StudentPage() {
   const botScrollRef = useRef<HTMLDivElement | null>(null);
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const liveLectureAlertedRef = useRef("");
+  const upcomingLecturesRef = useRef<BatchLecture[]>([]);
+  const activeLectureRef = useRef<BatchLecture | null>(null);
 
-  const parseApiError = (error: unknown, fallback: string) => {
+  const parseApiError = useCallback((error: unknown, fallback: string) => {
     const maybeMessage = (
       error as { response?: { data?: { message?: string } } }
     )?.response?.data?.message;
     const localMessage = (error as { message?: string })?.message;
     return maybeMessage || localMessage || fallback;
-  };
-  const pushToast = (
+  }, []);
+  const pushToast = useCallback((
     text: string,
     type: "success" | "error" | "info" = "info",
   ) => {
@@ -426,7 +466,7 @@ export default function StudentPage() {
     setTimeout(() => {
       setToasts((prev) => prev.filter((item) => item.id !== id));
     }, 3200);
-  };
+  }, []);
   const speakText = (text: string) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     try {
@@ -546,10 +586,7 @@ export default function StudentPage() {
 
   const loadSubjects = async () => {
     try {
-      const res = await api.get("/subjects/mine");
-      const list = res.data.subjects || [];
-      setSubjects(list);
-      if (!selectedSubjectId && list[0]) setSelectedSubjectId(list[0]._id);
+      await api.get("/subjects/mine");
     } catch (error) {
       setMessage(parseApiError(error, "Failed to load subjects."));
     }
@@ -592,15 +629,19 @@ export default function StudentPage() {
       const res = await api.get(`/lectures/batch/${batchKey}`);
       const lectures = res.data?.lectures || [];
       setUpcomingLectures(lectures);
+      upcomingLecturesRef.current = lectures;
       const liveLecture =
         lectures.find(
           (lecture: BatchLecture) =>
             String(lecture.status || "").toUpperCase() === "LIVE",
         ) || null;
       setActiveLiveLecture(liveLecture);
+      activeLectureRef.current = liveLecture;
     } catch (error) {
       setUpcomingLectures([]);
+      upcomingLecturesRef.current = [];
       setActiveLiveLecture(null);
+      activeLectureRef.current = null;
       setMessage(parseApiError(error, "Unable to load scheduled lectures."));
     }
   };
@@ -662,16 +703,10 @@ export default function StudentPage() {
   };
 
   const loadTodaysTimetable = async () => {
-    if (!user?.department) return;
+    if (!batchKey) return;
     try {
       setTimetableLoading(true);
-      // Safe batchKey format - department is a string (ObjectId)
-      const deptId = user.department;
-      const batchKey = `${deptId}_${user.year}_${user.division}`;
-      console.log("FRONTEND batchKey:", batchKey);
-      console.log("API CALL:", `/timetables/today/${batchKey}`);
       const res = await api.get(`/timetables/today/${batchKey}`);
-      console.log("API RESPONSE:", res.data);
       if (res.data.success) {
         setTodaysTimetable(res.data.timetable);
       } else {
@@ -701,7 +736,7 @@ export default function StudentPage() {
     }
   };
 
-  const clearActiveSession = (nextMessage?: string) => {
+  const clearActiveSession = useCallback((nextMessage?: string) => {
     activeSessionIdRef.current = "";
     setActiveSessionId("");
     setActiveSessionMeta(null);
@@ -709,10 +744,11 @@ export default function StudentPage() {
     if (nextMessage) {
       setMessage(nextMessage);
     }
-  };
+  }, []);
 
-  const pollActiveSession = async () => {
+  const pollActiveSession = useCallback(async () => {
     try {
+      setAttendanceCardLoading(true);
       const res = await api.get("/attendance/active-class");
       const session = res.data?.session;
       const nextRemainingSeconds = Number(res.data?.remainingSeconds || 0);
@@ -757,10 +793,20 @@ export default function StudentPage() {
         return;
       }
       console.log("Polling failed:", error);
+    } finally {
+      setAttendanceCardLoading(false);
     }
-  };
+  }, [clearActiveSession, pushToast]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    upcomingLecturesRef.current = upcomingLectures;
+  }, [upcomingLectures]);
+
+  useEffect(() => {
+    activeLectureRef.current = activeLiveLecture;
+  }, [activeLiveLecture]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadSubjects();
@@ -796,7 +842,7 @@ export default function StudentPage() {
       window.clearInterval(interval);
       setIsPolling(false);
     };
-  }, [batchKey]);
+  }, [batchKey, pollActiveSession]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -872,12 +918,7 @@ export default function StudentPage() {
     updateLectureCountdown();
     const timer = window.setInterval(updateLectureCountdown, 1000);
     return () => window.clearInterval(timer);
-  }, [
-    activeLiveLecture?._id,
-    activeLiveLecture?.startedAt,
-    activeLiveLecture?.scheduledAt,
-    activeLiveLecture?.durationMinutes,
-  ]);
+  }, [activeLiveLecture]);
 
   useEffect(() => {
     if (!activeLiveLecture?._id) return;
@@ -887,43 +928,7 @@ export default function StudentPage() {
     speakText(
       `${activeLiveLecture.teacherId?.name || "Teacher"} started live lecture. Join now.`,
     );
-  }, [activeLiveLecture?._id]);
-
-  // Check face registration status on mount
-  useEffect(() => {
-    const checkFaceRegistration = async () => {
-      try {
-        const res = await api.get("/students/me");
-        const registered = Boolean(res.data?.student?.faceRegisteredAt);
-        setFaceRegistered(registered);
-        
-        // DEV_MODE: Skip face registration check
-        if (process.env.NEXT_PUBLIC_DEV_MODE === "true") {
-          setFaceRegistered(true);
-          return;
-        }
-        
-        if (!registered) {
-          setMessage("Please complete face registration to access the dashboard.");
-          // Redirect to face registration immediately with proper state sync
-          setTimeout(() => {
-            router.replace('/student/face-register');
-          }, 100);
-        }
-      } catch (error) {
-        console.error("Failed to check face registration status:", error);
-        setFaceRegistered(false);
-        // Redirect to face registration on error as well
-        setTimeout(() => {
-          router.replace('/student/face-register');
-        }, 100);
-      }
-    };
-
-    if (user) {
-      void checkFaceRegistration();
-    }
-  }, [user, router]);
+  }, [activeLiveLecture]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -1022,14 +1027,14 @@ export default function StudentPage() {
       startedAt: string;
     }) => {
       if (payload?.batchId && payload.batchId !== batchKey) return;
-      
-      // Find the lecture in our list
-      const lecture = upcomingLectures.find(l => l._id === payload.lectureId);
+
+      const lecture = upcomingLecturesRef.current.find((item) => item._id === payload.lectureId);
       if (lecture) {
         setActiveLiveLecture(lecture);
+        activeLectureRef.current = lecture;
         pushToast(`${lecture.title} is live now!`, "success");
       } else {
-        // Manual lecture not in schedule
+        void loadBatchLectures();
         pushToast("Live lecture started!", "success");
       }
     });
@@ -1041,9 +1046,10 @@ export default function StudentPage() {
       endedAt: string;
     }) => {
       if (payload?.batchId && payload.batchId !== batchKey) return;
-      
-      if (activeLiveLecture?._id === payload.lectureId) {
+
+      if (activeLectureRef.current?._id === payload.lectureId) {
         setActiveLiveLecture(null);
+        activeLectureRef.current = null;
         leaveLiveClass();
         pushToast("Live lecture ended.", "info");
       }
@@ -1168,82 +1174,29 @@ export default function StudentPage() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, user?.college, liveRoomId, mediaRoomId, liveClassActive]);
+  }, [token, user?.college, liveRoomId, mediaRoomId, liveClassActive, batchKey]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  const openAttendanceCamera = async () => {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setMessage("Camera API not available on this device/browser.");
-        return;
-      }
-      
-      // Initialize camera immediately without loading AI models
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "user" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-      attendanceStreamRef.current = stream;
-      if (attendanceVideoRef.current)
-        attendanceVideoRef.current.srcObject = stream;
-      setCameraOpen(true);
-      setMessage("Camera opened successfully. Ready for face scan.");
-      pushToast("Camera opened successfully", "success");
-    } catch (error) {
-      const name = (error as { name?: string })?.name || "";
-      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        setMessage("Live camera stream not found on this device.");
-        pushToast("Camera not found. Please connect a webcam.", "error");
-        return;
-      }
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        setMessage(
-          "Camera permission denied. Allow camera access in browser settings.",
-        );
-        pushToast("Camera permission denied. Please enable camera access.", "error");
-        return;
-      }
-      if (name === "NotReadableError" || name === "TrackStartError") {
-        setMessage("Camera is busy in another app. Close that app and retry.");
-        pushToast("Camera is busy. Close other camera apps and retry.", "error");
-        return;
-      }
-      if (typeof window !== "undefined" && !window.isSecureContext) {
-        setMessage(
-          "Live camera may be blocked on HTTP mobile URL. Run the app on HTTPS.",
-        );
-        pushToast("Camera blocked on HTTP. Use HTTPS for camera access.", "error");
-        return;
-      }
-      setMessage("Unable to open camera.");
-      pushToast("Failed to open camera. Please try again.", "error");
+  const openAttendanceCamera = useCallback(async () => {
+    if (cameraOpen || isCameraLaunching) return;
+    setIsCameraLaunching(true);
+    for (const tick of [3, 2, 1]) {
+      setScanCountdownValue(tick);
+      await wait(650);
     }
-  };
-
-  const closeAttendanceCamera = () => {
-    if (attendanceStreamRef.current) {
-      attendanceStreamRef.current.getTracks().forEach((track) => track.stop());
-      attendanceStreamRef.current = null;
+    setScanCountdownValue(null);
+    const result = await openAttendanceCameraStream();
+    if (!result.success) {
+      setMessage(result.message);
+      pushToast(result.message, "error");
+      setIsCameraLaunching(false);
+      return;
     }
-    setCameraOpen(false);
-  };
 
-  const captureFrame = () => {
-    const video = attendanceVideoRef.current;
-    const canvas = attendanceCanvasRef.current;
-    if (!video || !canvas) return "";
-
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
-  };
+    setMessage("Camera opened successfully. Ready for face scan.");
+    pushToast("Camera opened successfully", "success");
+    setIsCameraLaunching(false);
+  }, [cameraOpen, isCameraLaunching, openAttendanceCameraStream, pushToast]);
 
   const wait = (ms: number) =>
     new Promise((resolve) => {
@@ -1268,6 +1221,33 @@ export default function StudentPage() {
     setIsLiveScanRunning(false);
     return frames;
   };
+
+  const getTimetableSlotStatus = useCallback(
+    (slot: TimetableSlotRow) => {
+      if (!todaysTimetable?.date || !slot.startTime) {
+        return "scheduled";
+      }
+
+      const datePart = String(todaysTimetable.date).split("T")[0];
+      const startAt = new Date(`${datePart}T${slot.startTime}`);
+      const endAt = new Date(
+        `${datePart}T${slot.endTime || slot.startTime}`,
+      );
+      const now = new Date();
+
+      if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
+        return "scheduled";
+      }
+      if (now >= startAt && now <= endAt) {
+        return "active";
+      }
+      if (now < startAt) {
+        return "upcoming";
+      }
+      return "completed";
+    },
+    [todaysTimetable?.date],
+  );
 
   const getCollegeFallbackLocation = async () => {
     try {
@@ -1325,11 +1305,16 @@ export default function StudentPage() {
         setMessage("Open live camera first, then blink once to scan.");
         return;
       }
+      setScanStage("capturing");
+      setFaceHint("Scanning live frames. Please blink once.");
       const frames = await captureLiveBlinkFrames();
       if (frames.length < 6) {
         setMessage("Live frame capture failed. Keep camera open and retry.");
+        setScanStage("idle");
         return;
       }
+      setScanStage("verifying");
+      setFaceHint("Verifying face, blink, and geolocation...");
       const location = await getLocation();
       const authToken =
         token ||
@@ -1343,7 +1328,7 @@ export default function StudentPage() {
         return;
       }
 
-      await api.post(
+      const res = await api.post(
         "/attendance/scan-face-class",
         {
           sessionId: activeSessionId,
@@ -1357,17 +1342,21 @@ export default function StudentPage() {
       );
 
       setMessage("Attendance marked via face scan!");
+      setLastFaceConfidence(Number(res.data?.attendance?.faceConfidence || res.data?.confidence || 0));
       pushToast("Attendance marked via face scan.", "success");
+      setScanStage("success");
+      setShowAttendanceSuccess(true);
+      setTimeout(() => setShowAttendanceSuccess(false), 1800);
       setFaceHint("");
       closeAttendanceCamera();
       void loadHistory();
       void loadDailyAttendance();
       clearActiveSession("Attendance marked via face scan!");
     } catch (error) {
-      const msg = parseApiError(
+      const msg = mapFaceErrorMessage(parseApiError(
         error,
         "Attendance failed: face/location validation failed.",
-      );
+      ));
       setMessage(msg);
       pushToast(msg, "error");
       if (
@@ -1392,6 +1381,7 @@ export default function StudentPage() {
       } else {
         setFaceHint("");
       }
+      setScanStage("idle");
     }
   };
 
@@ -1695,9 +1685,43 @@ export default function StudentPage() {
   const remoteCount = dailyAttendance.filter(
     (row) => row.status === "remote",
   ).length;
-  const activeLectureCount = upcomingLectures.filter(
-    (row) => String(row.status || "").toUpperCase() === "LIVE",
+  const currentLectures = upcomingLectures.filter(
+    (row) => !isLectureHistoryItem(row),
+  );
+  const lectureHistoryRows = upcomingLectures.filter((row) =>
+    isLectureHistoryItem(row),
+  );
+  const activeLectureCount = currentLectures.filter((row) =>
+    isLiveLectureRow(row),
   ).length;
+  const confidenceUi = getConfidenceUi(lastFaceConfidence);
+
+  useEffect(() => {
+    if (!cameraOpen || !attendanceVideoRef.current || !attendanceCanvasRef.current) {
+      setLowLightWarning("");
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      const video = attendanceVideoRef.current;
+      const canvas = attendanceCanvasRef.current;
+      if (!video || !canvas || !video.videoWidth || !video.videoHeight) return;
+      canvas.width = 32;
+      canvas.height = 24;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let total = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        total += (pixels[index] + pixels[index + 1] + pixels[index + 2]) / 3;
+      }
+      const brightness = total / (pixels.length / 4);
+      setLowLightWarning(brightness < 60 ? "Low lighting detected. Improve lighting" : "");
+    }, 1600);
+
+    return () => window.clearInterval(timer);
+  }, [cameraOpen, attendanceCanvasRef, attendanceVideoRef]);
 
   return (
     <ProtectedRoute allow={["student"]}>
@@ -1708,7 +1732,31 @@ export default function StudentPage() {
             setToasts((prev) => prev.filter((item) => item.id !== id))
           }
         />
-        <div className="grid gap-4 xl:grid-cols-2">
+        {scanCountdownValue ? (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-[2rem] border border-white/20 bg-white/92 p-10 text-center shadow-[0_35px_90px_rgba(15,23,42,0.28)]">
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">Get Ready for Attendance Scan</p>
+              <div className="mt-6 text-7xl font-black text-slate-950 animate-pulse">{scanCountdownValue}</div>
+            </div>
+          </div>
+        ) : null}
+        {isMobileUnsafeCameraContext() ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            Camera may not work properly on non-secure connection.
+          </div>
+        ) : null}
+        {showAttendanceSuccess ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-[2rem] border border-emerald-200 bg-white p-8 text-center shadow-[0_35px_90px_rgba(15,23,42,0.25)]">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-4xl font-bold text-emerald-600">
+                ✓
+              </div>
+              <h2 className="mt-5 text-2xl font-semibold text-slate-950">Attendance Marked Successfully</h2>
+              <p className="mt-2 text-sm text-slate-600">Face verified, blink detected, and attendance saved successfully.</p>
+            </div>
+          </div>
+        ) : null}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
@@ -1716,7 +1764,7 @@ export default function StudentPage() {
                   Scheduled Lectures
                 </p>
                 <p className="mt-1 text-3xl font-semibold text-slate-900">
-                  {upcomingLectures.length}
+                  {currentLectures.length}
                 </p>
               </article>
               <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
@@ -1839,18 +1887,22 @@ export default function StudentPage() {
                   </p>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
                 <button
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-h-[44px] w-full rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   type="button"
                   onClick={scanFaceAndMark}
                   disabled={!activeSessionId || remainingSeconds <= 0 || !cameraOpen || isLiveScanRunning}
                 >
-                  {isLiveScanRunning ? "Scanning Live..." : "Mark Attendance (Blink Scan)"}
+                  {isLiveScanRunning || scanStage === "capturing"
+                    ? "Scanning..."
+                    : scanStage === "verifying"
+                      ? "Verifying..."
+                      : "Mark Attendance (Blink Scan)"}
                 </button>
                 {allowManualBypass && (
                   <button
-                    className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="min-h-[44px] w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                     type="button"
                     onClick={markAttendanceManual}
                     disabled={!activeSessionId || remainingSeconds <= 0}
@@ -1859,15 +1911,15 @@ export default function StudentPage() {
                   </button>
                 )}
                 <button
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   type="button"
                   onClick={openAttendanceCamera}
-                  disabled={!activeSessionId || remainingSeconds <= 0}
+                  disabled={!activeSessionId || remainingSeconds <= 0 || isCameraLaunching}
                 >
-                  Open Camera
+                  {isCameraLaunching ? "Starting..." : "Open Camera"}
                 </button>
                 <button
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
+                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm sm:w-auto"
                   type="button"
                   onClick={closeAttendanceCamera}
                 >
@@ -1890,7 +1942,12 @@ export default function StudentPage() {
 
             {/* REMOVED: Manual "Find Session" button - replaced with automatic polling */}
 
-            {activeSessionMeta ? (
+            {attendanceCardLoading ? (
+              <div className="mt-3 space-y-2">
+                <div className="h-16 animate-pulse rounded-lg bg-slate-100" />
+                <div className="h-32 animate-pulse rounded-lg bg-slate-100" />
+              </div>
+            ) : activeSessionMeta ? (
               <div className="mt-3 rounded-lg border border-[#135ed8]/30 bg-[#135ed8]/5 p-3 text-sm text-slate-700">
                 <p>
                   <span className="font-semibold">Started by:</span>{" "}
@@ -1923,33 +1980,37 @@ export default function StudentPage() {
               </div>
             )}
 
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
               <button
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                 type="button"
                 onClick={openAttendanceCamera}
-                disabled={!activeSessionId || remainingSeconds <= 0}
+                disabled={!activeSessionId || remainingSeconds <= 0 || isCameraLaunching}
               >
-                Open Camera
+                {isCameraLaunching ? "Starting..." : "Open Camera"}
               </button>
               <button
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm sm:w-auto"
                 type="button"
                 onClick={closeAttendanceCamera}
               >
                 Close Camera
               </button>
               <button
-                className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                 type="button"
                 onClick={scanFaceAndMark}
                 disabled={!activeSessionId || remainingSeconds <= 0 || !cameraOpen || isLiveScanRunning}
               >
-                {isLiveScanRunning ? "Scanning Live..." : "Scan Face + Blink"}
+                {isLiveScanRunning || scanStage === "capturing"
+                  ? "Scanning..."
+                  : scanStage === "verifying"
+                    ? "Verifying..."
+                    : "Scan Face + Blink"}
               </button>
               {allowManualBypass ? (
                 <button
-                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-h-[44px] w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   type="button"
                   onClick={markAttendanceManual}
                   disabled={!activeSessionId || remainingSeconds <= 0}
@@ -1960,18 +2021,69 @@ export default function StudentPage() {
             </div>
 
             {cameraOpen && (
-              <video
-                ref={attendanceVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="mt-3 w-full rounded-lg border border-slate-200"
-              />
+              <div className="mt-3 relative mx-auto w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 sm:max-w-none">
+                <video
+                  ref={attendanceVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  onLoadedMetadata={handleAttendanceVideoReady}
+                  className="w-full rounded-2xl border border-slate-200"
+                />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="relative h-[70%] w-[58%] rounded-[1.8rem] border-2 border-cyan-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.18)]">
+                    <div className="absolute inset-0 rounded-[1.8rem] border-2 border-cyan-300/80 animate-pulse" />
+                  </div>
+                </div>
+                <div className="absolute left-4 top-4 rounded-full bg-slate-950/60 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur">
+                  {scanStage === "capturing" ? "Scanning..." : scanStage === "verifying" ? "Verifying..." : "Camera ready"}
+                </div>
+              </div>
             )}
             <canvas ref={attendanceCanvasRef} className="hidden" />
+            {lowLightWarning ? (
+              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                {lowLightWarning}
+              </div>
+            ) : null}
             {faceHint ? (
               <p className="mt-2 text-xs text-amber-700">{faceHint}</p>
             ) : null}
+            {cameraOpen ? (
+              <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700 animate-pulse">
+                  {"\u25CE"}
+                </span>
+                <span>
+                  {scanStage === "success"
+                    ? "Blink detected."
+                    : scanStage === "verifying"
+                      ? "Analyzing face..."
+                      : "Keep your face inside the frame and blink once during scan."}
+                </span>
+              </div>
+            ) : null}
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white/80 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${confidenceUi.tone}`}>{confidenceUi.label}</span>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Verification</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className={`h-full rounded-full transition-all duration-300 ${confidenceUi.bar}`} style={{ width: `${confidenceUi.progress}%` }} />
+              </div>
+            </div>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setFaceHint("Reopen the camera and try again.");
+                  setScanStage("idle");
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+              >
+                Retry Scan
+              </button>
+            </div>
           </section>
 
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
@@ -2139,7 +2251,7 @@ export default function StudentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {upcomingLectures.map((lecture) => (
+                  {currentLectures.map((lecture) => (
                     <tr key={lecture._id} className="border-b border-slate-100">
                       <td className="py-2">{lecture.title}</td>
                       <td className="py-2">{lecture.subjectId?.name || "-"}</td>
@@ -2184,10 +2296,52 @@ export default function StudentPage() {
                       </td>
                     </tr>
                   ))}
-                  {upcomingLectures.length === 0 ? (
+                  {currentLectures.length === 0 ? (
                     <tr>
                       <td className="py-3 text-slate-500" colSpan={9}>
                         No scheduled lectures found for your batch.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+            <h2 className="text-base font-semibold">Lecture History</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Completed and closed lectures move here automatically.
+            </p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2">Title</th>
+                    <th className="py-2">Subject</th>
+                    <th className="py-2">Teacher</th>
+                    <th className="py-2">Scheduled Time</th>
+                    <th className="py-2">Duration</th>
+                    <th className="py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lectureHistoryRows.map((lecture) => (
+                    <tr key={lecture._id} className="border-b border-slate-100">
+                      <td className="py-2">{lecture.title}</td>
+                      <td className="py-2">{lecture.subjectId?.name || "-"}</td>
+                      <td className="py-2">{lecture.teacherId?.name || "-"}</td>
+                      <td className="py-2">
+                        {new Date(lecture.scheduledAt).toLocaleString()}
+                      </td>
+                      <td className="py-2">{lecture.durationMinutes} min</td>
+                      <td className="py-2">{lecture.status || "ENDED"}</td>
+                    </tr>
+                  ))}
+                  {lectureHistoryRows.length === 0 ? (
+                    <tr>
+                      <td className="py-3 text-slate-500" colSpan={6}>
+                        No completed lectures yet.
                       </td>
                     </tr>
                   ) : null}
@@ -2490,14 +2644,16 @@ export default function StudentPage() {
           </section>
 
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
-            <h2 className="text-base font-semibold">Today's Schedule</h2>
+            <h2 className="text-base font-semibold">Today&apos;s Schedule</h2>
             <p className="mt-2 text-sm text-slate-600">
               Your classes for today based on the manual timetable set by your coordinator.
             </p>
             <div className="mt-3 overflow-x-auto">
               {timetableLoading ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
-                  <p className="text-sm text-slate-600">Loading timetable...</p>
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
+                  <div className="h-12 animate-pulse rounded-lg bg-slate-100" />
                 </div>
               ) : todaysTimetable ? (
                 <table className="w-full text-sm">
@@ -2511,34 +2667,49 @@ export default function StudentPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {todaysTimetable.periods?.map((period: any, index: number) => (
-                      <tr key={index} className="border-b border-slate-100">
+                    {todaysTimetable.slots?.map((period, index: number) => (
+                      <tr key={index} className={`border-b ${
+                        getTimetableSlotStatus(period) === "active"
+                          ? "border-emerald-100 bg-emerald-50/70"
+                          : "border-slate-100"
+                      }`}>
                         <td className="py-2">
-                          {period.startTime} - {period.endTime}
+                          {period.startTime} {period.endTime ? `- ${period.endTime}` : ""}
                         </td>
                         <td className="py-2">{period.subject || "-"}</td>
-                        <td className="py-2">{period.teacher || "-"}</td>
+                        <td className="py-2">{period.teacherName || "-"}</td>
                         <td className="py-2">
                           <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
-                            period.type === "lecture" ? "bg-blue-100 text-blue-700" :
-                            period.type === "lab" ? "bg-green-100 text-green-700" :
+                            period.type === "theory" ? "bg-blue-100 text-blue-700" :
+                            period.type === "practical" ? "bg-green-100 text-green-700" :
+                            period.type === "break" ? "bg-amber-100 text-amber-700" :
                             "bg-gray-100 text-gray-700"
                           }`}>
-                            {period.type || "lecture"}
+                            {period.type || "theory"}
                           </span>
                         </td>
                         <td className="py-2">
                           <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
-                            period.status === "completed" ? "bg-green-100 text-green-700" :
-                            period.status === "ongoing" ? "bg-yellow-100 text-yellow-700" :
-                            "bg-gray-100 text-gray-700"
+                            getTimetableSlotStatus(period) === "active"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : getTimetableSlotStatus(period) === "upcoming"
+                                ? "bg-blue-100 text-blue-700"
+                                : getTimetableSlotStatus(period) === "completed"
+                                  ? "bg-slate-200 text-slate-700"
+                                  : "bg-slate-100 text-slate-700"
                           }`}>
-                            {period.status || "pending"}
+                            {getTimetableSlotStatus(period) === "active"
+                              ? "Active now"
+                              : getTimetableSlotStatus(period) === "upcoming"
+                                ? "Upcoming"
+                                : getTimetableSlotStatus(period) === "completed"
+                                  ? "Completed"
+                                  : "Scheduled"}
                           </span>
                         </td>
                       </tr>
                     ))}
-                    {todaysTimetable.periods?.length === 0 ? (
+                    {todaysTimetable.slots?.length === 0 ? (
                       <tr>
                         <td className="py-3 text-slate-500" colSpan={5}>
                           No classes scheduled for today.

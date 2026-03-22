@@ -11,6 +11,7 @@ const { logAudit } = require("../utils/audit");
 const { emitToCollegeRoom } = require("../sockets/gateway");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { getFaceEmbedding, refreshCacheIfNeeded, cosineSimilarity } = require("../utils/faceCache");
+const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
 
 const ATTENDANCE_LIMIT_MINUTES = 10;
 const FACE_CONFIDENCE_THRESHOLD = 0.65;
@@ -19,14 +20,31 @@ const LOCATION_YELLOW_METERS = Number(process.env.LOCATION_YELLOW_METERS) || 150
 const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
   process.env.DEV_FORCE_GREEN_ON_MANUAL_BYPASS || (process.env.NODE_ENV !== "production" ? "true" : "false")
 ) === "true";
-const OPENCV_VERIFY_URL = process.env.OPENCV_VERIFY_URL || "";
 const ALLOW_STUDENT_MANUAL_BYPASS = String(process.env.ALLOW_STUDENT_MANUAL_BYPASS || "false") === "true";
 const LIVE_SCAN_MIN_FRAMES = 6;
 const FACE_SIMILARITY_THRESHOLD = 0.65;
+const ATTENDANCE_SCAN_COOLDOWN_MS = Number(process.env.ATTENDANCE_SCAN_COOLDOWN_MS) || 15000;
+const studentScanCooldowns = new Map();
 
 const getToday = () => new Date().toISOString().split("T")[0];
 
 const buildClassKey = ({ date, batchKey }) => `${date}_${batchKey}`;
+
+const checkAndSetScanCooldown = (studentId, sessionId) => {
+  const key = `${studentId}_${sessionId}`;
+  const now = Date.now();
+  const existing = studentScanCooldowns.get(key) || 0;
+  if (existing > now) {
+    return Math.ceil((existing - now) / 1000);
+  }
+  studentScanCooldowns.set(key, now + ATTENDANCE_SCAN_COOLDOWN_MS);
+  setTimeout(() => {
+    if (studentScanCooldowns.get(key) === now + ATTENDANCE_SCAN_COOLDOWN_MS) {
+      studentScanCooldowns.delete(key);
+    }
+  }, ATTENDANCE_SCAN_COOLDOWN_MS + 1000);
+  return 0;
+};
 
 const getEffectiveSessionEndTime = (session) => {
   const hardLimitEnd = new Date(
@@ -477,6 +495,14 @@ const markClassAttendance = async (req, res) => {
       });
     }
 
+    const remainingCooldown = checkAndSetScanCooldown(String(req.user._id), String(session._id));
+    if (remainingCooldown) {
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${remainingCooldown}s before retrying attendance`
+      });
+    }
+
     // Check if student already marked attendance today for this batch
     const todayDate = getToday();
     const existingRecord = await AttendanceRecord.findOne({
@@ -645,11 +671,7 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       });
     }
 
-    // Add timeout protection for OpenCV request
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-    if (!OPENCV_VERIFY_URL) {
+    if (!getOpencvEndpointCandidates("verify").length) {
       return res.status(503).json({
         success: false,
         message: "OpenCV verify service not configured"
@@ -681,6 +703,14 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: "Session is not assigned to your batch"
+      });
+    }
+
+    const remainingCooldown = checkAndSetScanCooldown(String(req.user._id), String(session._id));
+    if (remainingCooldown) {
+      return res.status(429).json({
+        success: false,
+        message: `Please wait ${remainingCooldown}s before retrying face scan`
       });
     }
 
@@ -728,24 +758,16 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       });
     }
 
-    const opencvRes = await fetch(OPENCV_VERIFY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-opencv-key": process.env.OPENCV_API_KEY || ""
-      },
-      body: JSON.stringify({
+    const { response: opencvRes, data: opencvData } = await postToOpenCv(
+      "verify",
+      {
         userId: String(req.user._id),
         subjectId: String(session.subject),
         image: frames[frames.length - 1],
         frames
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    const opencvData = await opencvRes.json().catch(() => ({}));
+      },
+      { timeoutMs: 12000 }
+    );
     const confidenceValue = Number(opencvData?.confidence);
     const matched = Boolean(opencvData?.matched || opencvData?.success);
     const livenessPassed = opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;
@@ -863,6 +885,12 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: "Attendance already marked today"
+      });
+    }
+    if (err.name === "AbortError") {
+      return res.status(504).json({
+        success: false,
+        message: "Face verification timeout"
       });
     }
     console.error("scanFaceAndMarkClassAttendance error:", err);
@@ -1185,7 +1213,7 @@ const scanFaceAndMarkAttendance = async (req, res) => {
       });
     }
 
-    if (!OPENCV_VERIFY_URL) {
+    if (!getOpencvEndpointCandidates("verify").length) {
       return res.status(503).json({
         success: false,
         message: "OpenCV verify service not configured"
@@ -1247,20 +1275,16 @@ const scanFaceAndMarkAttendance = async (req, res) => {
       });
     }
 
-    const opencvRes = await fetch(OPENCV_VERIFY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
+    const { response: opencvRes, data: opencvData } = await postToOpenCv(
+      "verify",
+      {
         userId: String(req.user._id),
         subjectId: String(session.subject),
         image: frames[frames.length - 1],
         frames
-      })
-    });
-
-    const opencvData = await opencvRes.json().catch(() => ({}));
+      },
+      { timeoutMs: 12000 }
+    );
     const confidenceValue = Number(opencvData?.confidence);
     const matched = Boolean(opencvData?.matched || opencvData?.success);
     const livenessPassed = opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;

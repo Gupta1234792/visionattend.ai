@@ -38,6 +38,7 @@ export default function CoordinatorPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<LectureRow[]>([]);
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [lectureForm, setLectureForm] = useState({
     title: "",
@@ -100,9 +101,7 @@ export default function CoordinatorPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      void loadSubjects();
-      void loadLectures();
-      void loadHolidays();
+      void Promise.all([loadSubjects(), loadLectures(), loadHolidays()]).finally(() => setLoading(false));
     }, 0);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,7 +145,7 @@ export default function CoordinatorPage() {
       await api.post("/lectures", {
         title: lectureForm.title.trim(),
         subjectId: lectureForm.subjectId,
-        batchKey: batchKey,
+        batchId: batchKey,
         scheduledAt,
         durationMinutes: Number(lectureForm.durationMinutes),
         purpose: lectureForm.purpose.trim()
@@ -171,7 +170,7 @@ export default function CoordinatorPage() {
 
     try {
       const res = await api.post("/holidays", {
-        batchKey: batchKey,
+        batchId: batchKey,
         fromDate: new Date(holidayForm.fromDate).toISOString(),
         toDate: new Date(holidayForm.toDate).toISOString(),
         reason: holidayForm.reason.trim()
@@ -191,6 +190,15 @@ export default function CoordinatorPage() {
       <DashboardLayout title={user?.role === "teacher" ? "Teacher Timetable Control" : "Coordinator Timetable Control"}>
         <section className="mb-4 rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {loading ? (
+              <>
+                <div className="h-24 animate-pulse rounded-2xl bg-white/80" />
+                <div className="h-24 animate-pulse rounded-2xl bg-white/80" />
+                <div className="h-24 animate-pulse rounded-2xl bg-white/80" />
+                <div className="h-24 animate-pulse rounded-2xl bg-white/80" />
+              </>
+            ) : (
+              <>
             <article className="rounded-2xl border border-white/80 bg-white/80 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Subjects</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">{subjects.length}</p>
@@ -207,6 +215,8 @@ export default function CoordinatorPage() {
               <p className="text-xs uppercase tracking-wide text-slate-500">Holiday Rows</p>
               <p className="mt-2 text-3xl font-semibold text-slate-900">{holidays.length}</p>
             </article>
+              </>
+            )}
           </div>
         </section>
 
@@ -223,11 +233,11 @@ export default function CoordinatorPage() {
           <p className="mt-2 text-xs text-slate-500">Batch Key: {batchKey || "-"}</p>
         </section>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
             <h2 className="text-base font-semibold">Student Invite</h2>
             <p className="mt-2 text-sm text-slate-600">Share both invite link and invite code with students.</p>
-            <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="button" onClick={createInvite}>
+            <button className="mt-3 min-h-[44px] w-full rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white sm:w-auto" type="button" onClick={createInvite}>
               Generate Invite
             </button>
             {inviteResult ? (
@@ -261,7 +271,7 @@ export default function CoordinatorPage() {
                 onChange={(e) => setHolidayForm((prev) => ({ ...prev, reason: e.target.value }))}
               />
             </div>
-            <button className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700" type="button" onClick={announceHoliday}>
+            <button className="mt-3 min-h-[44px] w-full rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 sm:w-auto" type="button" onClick={announceHoliday}>
               Announce Holiday
             </button>
           </section>
@@ -307,7 +317,7 @@ export default function CoordinatorPage() {
               onChange={(e) => setLectureForm((prev) => ({ ...prev, purpose: e.target.value }))}
             />
           </div>
-          <button className="mt-3 rounded-lg bg-[#135ed8] px-4 py-2 text-sm font-semibold text-white" type="button" onClick={scheduleLecture}>
+          <button className="mt-3 min-h-[44px] w-full rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white sm:w-auto" type="button" onClick={scheduleLecture}>
             Add to Timetable
           </button>
         </section>

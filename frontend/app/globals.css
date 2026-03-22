@@ -27,6 +27,24 @@ body {
   overflow-x: hidden;
 }
 
+html,
+body {
+  min-height: 100%;
+}
+
+a,
+button,
+input,
+textarea,
+select {
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
+}
+
 .react-calendar-heatmap .color-empty {
   fill: rgba(148, 163, 184, 0.18);
 }
