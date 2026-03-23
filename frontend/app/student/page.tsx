@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, useMemo, memo } from "react";
 import type { Socket } from "socket.io-client";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -24,6 +24,117 @@ import {
 } from "@/src/services/socket";
 import { useCameraStream } from "@/src/hooks/use-camera-stream";
 import { getConfidenceUi, isMobileUnsafeCameraContext, mapFaceErrorMessage } from "@/src/utils/demo-ux";
+
+// ========== OPTIMIZATION: Custom hook for polling active session ==========
+const useActiveSession = (batchKey: string, onSessionStart?: () => void) => {
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const [activeSessionMeta, setActiveSessionMeta] = useState<ActiveSessionMeta | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const activeSessionIdRef = useRef("");
+  const prevSessionRef = useRef({
+    sessionId: "",
+    remainingSeconds: 0,
+    teacherName: "",
+    teacherEmail: "",
+  });
+  const [isPolling, setIsPolling] = useState(false);
+
+  const clearActiveSession = useCallback((nextMessage?: string) => {
+    if (activeSessionIdRef.current !== "") {
+      activeSessionIdRef.current = "";
+      setActiveSessionId("");
+      setActiveSessionMeta(null);
+      setRemainingSeconds(0);
+      prevSessionRef.current = {
+        sessionId: "",
+        remainingSeconds: 0,
+        teacherName: "",
+        teacherEmail: "",
+      };
+    }
+  }, []);
+
+  const pollActiveSession = useCallback(async () => {
+    try {
+      const res = await api.get("/attendance/active-class");
+      const session = res.data?.session;
+      const nextRemainingSeconds = Number(res.data?.remainingSeconds || 0);
+
+      if (!session?._id) {
+        clearActiveSession();
+        return;
+      }
+
+      const sessionIdChanged = session._id !== prevSessionRef.current.sessionId;
+      const remainingSecondsChanged = Math.abs(nextRemainingSeconds - prevSessionRef.current.remainingSeconds) > 1;
+      const teacherNameChanged = (session.teacher?.name || "") !== prevSessionRef.current.teacherName;
+      const teacherEmailChanged = (session.teacher?.email || "") !== prevSessionRef.current.teacherEmail;
+
+      if (sessionIdChanged) {
+        activeSessionIdRef.current = session._id;
+        setActiveSessionId(session._id);
+        prevSessionRef.current.sessionId = session._id;
+        if (onSessionStart) onSessionStart();
+      }
+
+      if (remainingSecondsChanged) {
+        setRemainingSeconds(nextRemainingSeconds);
+        prevSessionRef.current.remainingSeconds = nextRemainingSeconds;
+      }
+
+      if (sessionIdChanged || teacherNameChanged || teacherEmailChanged || remainingSecondsChanged) {
+        const newMeta = {
+          teacherName: session.teacher?.name,
+          teacherEmail: session.teacher?.email,
+          remainingSeconds: nextRemainingSeconds,
+        };
+
+        setActiveSessionMeta((current) => {
+          if (
+            current?.teacherName !== newMeta.teacherName ||
+            current?.teacherEmail !== newMeta.teacherEmail ||
+            current?.remainingSeconds !== newMeta.remainingSeconds
+          ) {
+            return newMeta;
+          }
+          return current;
+        });
+
+        if (teacherNameChanged) prevSessionRef.current.teacherName = session.teacher?.name || "";
+        if (teacherEmailChanged) prevSessionRef.current.teacherEmail = session.teacher?.email || "";
+      }
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 404 || status === 403) {
+        clearActiveSession();
+        return;
+      }
+    }
+  }, [clearActiveSession, onSessionStart]);
+
+  useEffect(() => {
+    if (!batchKey) return;
+    setIsPolling(true);
+    void pollActiveSession();
+    const interval = window.setInterval(() => {
+      void pollActiveSession();
+    }, 3000);
+
+    return () => {
+      window.clearInterval(interval);
+      setIsPolling(false);
+    };
+  }, [batchKey, pollActiveSession]);
+
+  return {
+    activeSessionId,
+    activeSessionMeta,
+    remainingSeconds,
+    isPolling,
+    clearActiveSession,
+    setRemainingSeconds,
+  };
+};
 
 type AttendanceHistoryRow = { subject?: string; percentage?: number };
 type DailyAttendanceRow = {
@@ -365,31 +476,69 @@ const renderMessageMarkdown = (
   return blocks.length ? blocks : <p>{text}</p>;
 };
 
+// ========== OPTIMIZATION: Memoized components ==========
+const MemoizedAttendanceHeatmap = memo(AttendanceHeatmap);
+
+const StatsCards = memo(({ presentCount, remoteCount, currentLectures, activeLectureCount }: {
+  presentCount: number;
+  remoteCount: number;
+  currentLectures: BatchLecture[];
+  activeLectureCount: number;
+}) => (
+  <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+      <article className="rounded-2xl border border-white/80 bg-white/85 p-3 transition-all duration-200 hover:shadow-md active:scale-[0.98]">
+        <p className="text-xs uppercase tracking-wide text-slate-500">
+          Scheduled Lectures
+        </p>
+        <p className="mt-1 text-2xl sm:text-3xl font-semibold text-slate-900">
+          {currentLectures.length}
+        </p>
+      </article>
+      <article className="rounded-2xl border border-white/80 bg-white/85 p-3 transition-all duration-200 hover:shadow-md active:scale-[0.98]">
+        <p className="text-xs uppercase tracking-wide text-slate-500">
+          Live Now
+        </p>
+        <p className="mt-1 text-2xl sm:text-3xl font-semibold text-slate-900">
+          {activeLectureCount}
+        </p>
+      </article>
+      <article className="rounded-2xl border border-white/80 bg-white/85 p-3 transition-all duration-200 hover:shadow-md active:scale-[0.98]">
+        <p className="text-xs uppercase tracking-wide text-slate-500">
+          Present Marks
+        </p>
+        <p className="mt-1 text-2xl sm:text-3xl font-semibold text-slate-900">
+          {presentCount}
+        </p>
+      </article>
+      <article className="rounded-2xl border border-white/80 bg-white/85 p-3 transition-all duration-200 hover:shadow-md active:scale-[0.98]">
+        <p className="text-xs uppercase tracking-wide text-slate-500">
+          Remote Marks
+        </p>
+        <p className="mt-1 text-2xl sm:text-3xl font-semibold text-slate-900">
+          {remoteCount}
+        </p>
+      </article>
+    </div>
+  </section>
+));
+
+StatsCards.displayName = "StatsCards";
+
 export default function StudentPage() {
   const { user, token } = useAuth();
   const [message, setMessage] = useState("Student dashboard ready.");
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState("");
-  const [activeSessionMeta, setActiveSessionMeta] =
-    useState<ActiveSessionMeta | null>(null);
   const [history, setHistory] = useState<AttendanceHistoryRow[]>([]);
   const [upcomingLectures, setUpcomingLectures] = useState<BatchLecture[]>([]);
   const [activeLiveLecture, setActiveLiveLecture] = useState<BatchLecture | null>(null);
   const [upcomingHolidays, setUpcomingHolidays] = useState<BatchHoliday[]>([]);
-  const [dailyAttendance, setDailyAttendance] = useState<DailyAttendanceRow[]>(
-    [],
-  );
-  const [classroomTeachers, setClassroomTeachers] = useState<
-    ClassroomTeacher[]
-  >([]);
-  const [classroomCoordinators, setClassroomCoordinators] = useState<
-    ClassroomCoordinator[]
-  >([]);
-  const [classroomBatchInfo, setClassroomBatchInfo] =
-    useState<ClassroomBatchInfo | null>(null);
+  const [dailyAttendance, setDailyAttendance] = useState<DailyAttendanceRow[]>([]);
+  const [classroomTeachers, setClassroomTeachers] = useState<ClassroomTeacher[]>([]);
+  const [classroomCoordinators, setClassroomCoordinators] = useState<ClassroomCoordinator[]>([]);
+  const [classroomBatchInfo, setClassroomBatchInfo] = useState<ClassroomBatchInfo | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
-  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [faceHint, setFaceHint] = useState("");
   const [scanStage, setScanStage] = useState<"idle" | "capturing" | "verifying" | "success">("idle");
   const [showAttendanceSuccess, setShowAttendanceSuccess] = useState(false);
@@ -422,9 +571,16 @@ export default function StudentPage() {
   const [timetableLoading, setTimetableLoading] = useState(false);
   const [attendanceCardLoading, setAttendanceCardLoading] = useState(true);
 
-  const [isPolling, setIsPolling] = useState(false);
-  const activeSessionIdRef = useRef("");
   const [isLiveScanRunning, setIsLiveScanRunning] = useState(false);
+  
+  // REFS FOR PREVENTING REDUNDANT STATE UPDATES
+  const prevSessionRef = useRef({
+    sessionId: "",
+    remainingSeconds: 0,
+    teacherName: "",
+    teacherEmail: "",
+  });
+  
   const {
     videoRef: attendanceVideoRef,
     canvasRef: attendanceCanvasRef,
@@ -450,71 +606,6 @@ export default function StudentPage() {
   const upcomingLecturesRef = useRef<BatchLecture[]>([]);
   const activeLectureRef = useRef<BatchLecture | null>(null);
 
-  const parseApiError = useCallback((error: unknown, fallback: string) => {
-    const maybeMessage = (
-      error as { response?: { data?: { message?: string } } }
-    )?.response?.data?.message;
-    const localMessage = (error as { message?: string })?.message;
-    return maybeMessage || localMessage || fallback;
-  }, []);
-  const pushToast = useCallback((
-    text: string,
-    type: "success" | "error" | "info" = "info",
-  ) => {
-    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { id, text, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 3200);
-  }, []);
-  const speakText = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      // ignore speech synthesis failures
-    }
-  };
-  const playLiveLectureAlert = () => {
-    if (typeof window === "undefined") return;
-    try {
-      const AudioContextCtor =
-        window.AudioContext ||
-        (
-          window as Window & {
-            webkitAudioContext?: typeof AudioContext;
-          }
-        ).webkitAudioContext;
-      if (!AudioContextCtor) return;
-
-      const context = new AudioContextCtor();
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(880, context.currentTime);
-      oscillator.frequency.setValueAtTime(660, context.currentTime + 0.2);
-      gain.gain.setValueAtTime(0.0001, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        context.currentTime + 0.45,
-      );
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.45);
-      oscillator.onended = () => {
-        void context.close().catch(() => null);
-      };
-    } catch {
-      // ignore audio alert failures
-    }
-  };
-
   const batchKey =
     user?.department && user?.year && user?.division
       ? buildBatchKey(user.department, user.year, user.division)
@@ -524,6 +615,44 @@ export default function StudentPage() {
     ? buildLectureRoomId(activeLiveLecture.meetingRoomId)
     : "";
   const mediaRoomId = lectureRoomId || liveRoomId;
+
+  // ========== OPTIMIZATION: Use the extracted polling hook ==========
+  const {
+    activeSessionId,
+    activeSessionMeta,
+    remainingSeconds,
+    isPolling,
+    clearActiveSession,
+    setRemainingSeconds: setHookRemainingSeconds,
+  } = useActiveSession(batchKey, () => {
+    pushToast("Attendance session started!", "success");
+  });
+
+  // ========== OPTIMIZATION: Memoized computed values ==========
+  const presentCount = useMemo(() => 
+    dailyAttendance.filter((row) => row.status === "present").length,
+    [dailyAttendance]
+  );
+  
+  const remoteCount = useMemo(() => 
+    dailyAttendance.filter((row) => row.status === "remote").length,
+    [dailyAttendance]
+  );
+  
+  const currentLectures = useMemo(() => 
+    upcomingLectures.filter((row) => !isLectureHistoryItem(row)),
+    [upcomingLectures]
+  );
+  
+  const lectureHistoryRows = useMemo(() => 
+    upcomingLectures.filter((row) => isLectureHistoryItem(row)),
+    [upcomingLectures]
+  );
+  
+  const activeLectureCount = useMemo(() => 
+    currentLectures.filter((row) => isLiveLectureRow(row)).length,
+    [currentLectures]
+  );
 
   const addRemoteStream = (peerSocketId: string, stream: MediaStream) => {
     setRemoteStreams((prev) => {
@@ -582,6 +711,74 @@ export default function StudentPage() {
 
     peersRef.current.set(peerSocketId, pc);
     return pc;
+  };
+
+  const parseApiError = useCallback((error: unknown, fallback: string) => {
+    const maybeMessage = (
+      error as { response?: { data?: { message?: string } } }
+    )?.response?.data?.message;
+    const localMessage = (error as { message?: string })?.message;
+    return maybeMessage || localMessage || fallback;
+  }, []);
+  
+  const pushToast = useCallback((
+    text: string,
+    type: "success" | "error" | "info" = "info",
+  ) => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setToasts((prev) => [...prev, { id, text, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((item) => item.id !== id));
+    }, 3200);
+  }, []);
+  
+  const speakText = (text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // ignore speech synthesis failures
+    }
+  };
+  
+  const playLiveLectureAlert = () => {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioContextCtor =
+        window.AudioContext ||
+        (
+          window as Window & {
+            webkitAudioContext?: typeof AudioContext;
+          }
+        ).webkitAudioContext;
+      if (!AudioContextCtor) return;
+
+      const context = new AudioContextCtor();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      oscillator.frequency.setValueAtTime(660, context.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        context.currentTime + 0.45,
+      );
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.45);
+      oscillator.onended = () => {
+        void context.close().catch(() => null);
+      };
+    } catch {
+      // ignore audio alert failures
+    }
   };
 
   const loadSubjects = async () => {
@@ -728,475 +925,12 @@ export default function StudentPage() {
       
       if (lecture) {
         setActiveLiveLecture(lecture);
-        // Show toast notification for active lecture
         pushToast(`${lecture.title} is live now!`, "success");
       }
     } catch (error) {
       console.error("Failed to check active lecture:", error);
     }
   };
-
-  const clearActiveSession = useCallback((nextMessage?: string) => {
-    activeSessionIdRef.current = "";
-    setActiveSessionId("");
-    setActiveSessionMeta(null);
-    setRemainingSeconds(0);
-    if (nextMessage) {
-      setMessage(nextMessage);
-    }
-  }, []);
-
-  const pollActiveSession = useCallback(async () => {
-    try {
-      setAttendanceCardLoading(true);
-      const res = await api.get("/attendance/active-class");
-      const session = res.data?.session;
-      const nextRemainingSeconds = Number(res.data?.remainingSeconds || 0);
-
-      if (!session?._id) {
-        clearActiveSession("No active attendance session.");
-        return;
-      }
-
-      if (session._id !== activeSessionIdRef.current) {
-        activeSessionIdRef.current = session._id;
-        setActiveSessionId(session._id);
-        setActiveSessionMeta({
-          teacherName: session.teacher?.name,
-          teacherEmail: session.teacher?.email,
-          remainingSeconds: nextRemainingSeconds,
-        });
-        setRemainingSeconds(nextRemainingSeconds);
-        setMessage("Attendance session started for your batch!");
-        pushToast("Attendance session started!", "success");
-      } else {
-        setRemainingSeconds(nextRemainingSeconds);
-        setActiveSessionMeta((current) =>
-          current
-            ? {
-                ...current,
-                teacherName: session.teacher?.name,
-                teacherEmail: session.teacher?.email,
-                remainingSeconds: nextRemainingSeconds,
-              }
-            : {
-                teacherName: session.teacher?.name,
-                teacherEmail: session.teacher?.email,
-                remainingSeconds: nextRemainingSeconds,
-              },
-        );
-      }
-    } catch (error) {
-      const status = (error as { response?: { status?: number } })?.response?.status;
-      if (status === 404 || status === 403) {
-        clearActiveSession("No active attendance session.");
-        return;
-      }
-      console.log("Polling failed:", error);
-    } finally {
-      setAttendanceCardLoading(false);
-    }
-  }, [clearActiveSession, pushToast]);
-
-  /* eslint-disable react-hooks/exhaustive-deps */
-  useEffect(() => {
-    upcomingLecturesRef.current = upcomingLectures;
-  }, [upcomingLectures]);
-
-  useEffect(() => {
-    activeLectureRef.current = activeLiveLecture;
-  }, [activeLiveLecture]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      void loadSubjects();
-      void loadHistory();
-      void loadAnnouncements();
-      void loadBatchLectures();
-      void loadBatchHolidays();
-      void loadDailyAttendance();
-      void loadClassroomTeachers();
-      void loadNotifications();
-      void loadMiniAnalytics();
-      void loadTodaysTimetable();
-      void checkActiveLecture(); // Check for active lectures on dashboard load
-      setIsPolling(true);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-      setIsPolling(false);
-      clearActiveSession();
-    };
-  }, [liveRoomId]);
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  useEffect(() => {
-    if (!batchKey) return;
-    setIsPolling(true);
-    void pollActiveSession();
-    const interval = window.setInterval(() => {
-      void pollActiveSession();
-    }, 3000);
-
-    return () => {
-      window.clearInterval(interval);
-      setIsPolling(false);
-    };
-  }, [batchKey, pollActiveSession]);
-
-  /* eslint-disable react-hooks/exhaustive-deps */
-  useEffect(() => {
-    if (!batchKey) return;
-    const interval = setInterval(() => {
-      void loadBatchLectures();
-      void loadBatchHolidays();
-      void loadClassroomTeachers();
-      void loadDailyAttendance();
-      void loadHistory();
-      void loadNotifications();
-      void loadMiniAnalytics();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [batchKey]);
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  // NEW: Timer countdown for active session
-  useEffect(() => {
-    if (!activeSessionId) return;
-    const timer = setInterval(() => {
-      setRemainingSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [activeSessionId]);
-
-  useEffect(() => {
-    if (!botScrollRef.current) return;
-    botScrollRef.current.scrollTop = botScrollRef.current.scrollHeight;
-  }, [botMessages, botLoading]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const ctor = (
-      window as Window & {
-        SpeechRecognition?: SpeechRecognitionCtor;
-        webkitSpeechRecognition?: SpeechRecognitionCtor;
-      }
-    ).SpeechRecognition ||
-      (
-        window as Window & {
-          webkitSpeechRecognition?: SpeechRecognitionCtor;
-        }
-      ).webkitSpeechRecognition;
-    setVoiceSupported(Boolean(ctor));
-  }, []);
-
-  useEffect(() => {
-    if (!activeLiveLecture) {
-      setLectureBannerSeconds(0);
-      liveLectureAlertedRef.current = "";
-      return;
-    }
-
-    const updateLectureCountdown = () => {
-      const startedAt = activeLiveLecture.startedAt || activeLiveLecture.scheduledAt;
-      const startedAtMs = new Date(startedAt || 0).getTime();
-      if (!startedAtMs || !activeLiveLecture.durationMinutes) {
-        setLectureBannerSeconds(0);
-        return;
-      }
-      const endsAtMs =
-        startedAtMs + Number(activeLiveLecture.durationMinutes || 0) * 60 * 1000;
-      setLectureBannerSeconds(Math.max(0, Math.floor((endsAtMs - Date.now()) / 1000)));
-    };
-
-    updateLectureCountdown();
-    const timer = window.setInterval(updateLectureCountdown, 1000);
-    return () => window.clearInterval(timer);
-  }, [activeLiveLecture]);
-
-  useEffect(() => {
-    if (!activeLiveLecture?._id) return;
-    if (liveLectureAlertedRef.current === activeLiveLecture._id) return;
-    liveLectureAlertedRef.current = activeLiveLecture._id;
-    playLiveLectureAlert();
-    speakText(
-      `${activeLiveLecture.teacherId?.name || "Teacher"} started live lecture. Join now.`,
-    );
-  }, [activeLiveLecture]);
-
-  /* eslint-disable react-hooks/exhaustive-deps */
-  useEffect(() => {
-    if (!token || !user?.college) return;
-
-    const socket = connectCollegeSocket(token, user.college);
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      if (liveRoomId) socket.emit("join-room", { roomId: liveRoomId });
-      if (mediaRoomId) socket.emit("join-room", { roomId: mediaRoomId });
-      // Join batch room for batch-specific events like live class notifications
-      if (batchKey) {
-        socket.emit("join-batch-room", { batchId: batchKey });
-      }
-    });
-
-    socket.on("chat-message", (payload: Announcement) => {
-      if (payload?.roomId && payload.roomId !== liveRoomId) return;
-      setAnnouncements((prev) => [...prev, payload]);
-      pushToast("New lecture announcement received.", "info");
-    });
-
-    socket.on("notification:new", (payload: NotificationItem) => {
-      setNotifications((prev) =>
-        [
-          {
-            title: payload?.title || "Notification",
-            message: payload?.message || "",
-            createdAt: payload?.createdAt || new Date().toISOString(),
-            isRead: false,
-          },
-          ...prev,
-        ].slice(0, 5),
-      );
-      setUnreadNotifications((prev) => prev + 1);
-    });
-
-    socket.on("ATTENDANCE_SESSION_STARTED", (payload: AttendanceStartPayload) => {
-      if (payload?.batchKey && payload.batchKey !== batchKey) return;
-      if (payload?.sessionId) {
-        activeSessionIdRef.current = payload.sessionId;
-        setActiveSessionId(payload.sessionId);
-        const remaining = payload?.endTime
-          ? Math.max(
-              0,
-              Math.floor((new Date(payload.endTime).getTime() - Date.now()) / 1000),
-            )
-          : 10 * 60;
-        setRemainingSeconds(remaining);
-        setActiveSessionMeta({
-          teacherName: payload?.teacherName || "",
-          teacherEmail: payload?.teacherEmail || "",
-          remainingSeconds: remaining,
-        });
-      }
-      setMessage("Attendance session started for your batch.");
-      void loadDailyAttendance();
-      void pollActiveSession();
-      pushToast("Attendance session is live now.", "success");
-    });
-
-    socket.on("ATTENDANCE_MARKED", () => {
-      void loadDailyAttendance();
-      void loadHistory();
-    });
-
-    socket.on("ATTENDANCE_SESSION_CLOSED", () => {
-      void loadDailyAttendance();
-      clearActiveSession("Attendance session closed.");
-    });
-
-    socket.on("LECTURE_STARTED", () => {
-      void loadBatchLectures();
-      void loadNotifications();
-      pushToast("Teacher started live lecture. Join now.", "success");
-    });
-
-    socket.on("LECTURE_ENDED", () => {
-      void loadBatchLectures();
-      void loadNotifications();
-      leaveLiveClass();
-      setActiveLiveLecture(null);
-      pushToast("Live lecture ended.", "info");
-    });
-
-    // NEW: Handle live class started event with banner
-    socket.on("live_class_started", (payload: {
-      lectureId: string;
-      batchId: string;
-      title: string;
-      subject: string;
-      teacher: string;
-      meetingRoomId: string;
-      meetingLink: string;
-      startedAt: string;
-    }) => {
-      if (payload?.batchId && payload.batchId !== batchKey) return;
-
-      const lecture = upcomingLecturesRef.current.find((item) => item._id === payload.lectureId);
-      if (lecture) {
-        setActiveLiveLecture(lecture);
-        activeLectureRef.current = lecture;
-        pushToast(`${lecture.title} is live now!`, "success");
-      } else {
-        void loadBatchLectures();
-        pushToast("Live lecture started!", "success");
-      }
-    });
-
-    // NEW: Handle live class ended event
-    socket.on("live_class_ended", (payload: {
-      lectureId: string;
-      batchId: string;
-      endedAt: string;
-    }) => {
-      if (payload?.batchId && payload.batchId !== batchKey) return;
-
-      if (activeLectureRef.current?._id === payload.lectureId) {
-        setActiveLiveLecture(null);
-        activeLectureRef.current = null;
-        leaveLiveClass();
-        pushToast("Live lecture ended.", "info");
-      }
-    });
-
-    // Handle timetable updates
-    socket.on("TIMETABLE_UPDATED", (payload: {
-      batchKey: string;
-      date: string;
-      action: string;
-    }) => {
-      if (payload?.batchKey && payload.batchKey !== batchKey) return;
-      
-      // Refresh today's timetable if it's for today
-      const today = new Date().toISOString().split('T')[0];
-      if (payload.date === today) {
-        void loadTodaysTimetable();
-        pushToast(`Timetable ${payload.action} for today.`, "info");
-      }
-    });
-
-    socket.on(
-      "room-peer-left",
-      ({
-        roomId,
-        socketId: peerSocketId,
-      }: {
-        roomId: string;
-        socketId: string;
-      }) => {
-        if (roomId !== mediaRoomId) return;
-        closePeer(peerSocketId);
-      },
-    );
-
-    socket.on(
-      "webrtc-ready",
-      async ({ roomId, from }: { roomId: string; from: string }) => {
-        if (
-          !liveClassActive ||
-          roomId !== mediaRoomId ||
-          !from ||
-          from === socket.id
-        )
-          return;
-        if (!socket.id || socket.id <= from) return;
-
-        try {
-          const pc = createPeer(from, roomId);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-
-          socket.emit("webrtc-signal", {
-            roomId,
-            to: from,
-            signal: { type: "offer", sdp: offer },
-          });
-        } catch {
-          setMessage("Failed to connect live class stream.");
-        }
-      },
-    );
-
-    socket.on(
-      "webrtc-signal",
-      async ({
-        roomId,
-        from,
-        signal,
-      }: {
-        roomId: string;
-        from: string;
-        signal: {
-          type: string;
-          sdp?: RTCSessionDescriptionInit;
-          candidate?: RTCIceCandidateInit;
-        };
-      }) => {
-        if (
-          !liveClassActive ||
-          roomId !== mediaRoomId ||
-          !from ||
-          from === socket.id
-        )
-          return;
-
-        try {
-          const pc = createPeer(from, roomId);
-
-          if (signal.type === "offer" && signal.sdp) {
-            await pc.setRemoteDescription(
-              new RTCSessionDescription(signal.sdp),
-            );
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-
-            socket.emit("webrtc-signal", {
-              roomId,
-              to: from,
-              signal: { type: "answer", sdp: answer },
-            });
-            return;
-          }
-
-          if (signal.type === "answer" && signal.sdp) {
-            await pc.setRemoteDescription(
-              new RTCSessionDescription(signal.sdp),
-            );
-            return;
-          }
-
-          if (signal.type === "ice-candidate" && signal.candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-          }
-        } catch {
-          setMessage("Realtime connection sync failed.");
-        }
-      },
-    );
-
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [token, user?.college, liveRoomId, mediaRoomId, liveClassActive, batchKey]);
-  /* eslint-enable react-hooks/exhaustive-deps */
-
-  const openAttendanceCamera = useCallback(async () => {
-    if (cameraOpen || isCameraLaunching) return;
-    setIsCameraLaunching(true);
-    for (const tick of [3, 2, 1]) {
-      setScanCountdownValue(tick);
-      await wait(650);
-    }
-    setScanCountdownValue(null);
-    const result = await openAttendanceCameraStream();
-    if (!result.success) {
-      setMessage(result.message);
-      pushToast(result.message, "error");
-      setIsCameraLaunching(false);
-      return;
-    }
-
-    setMessage("Camera opened successfully. Ready for face scan.");
-    pushToast("Camera opened successfully", "success");
-    setIsCameraLaunching(false);
-  }, [cameraOpen, isCameraLaunching, openAttendanceCameraStream, pushToast]);
 
   const wait = (ms: number) =>
     new Promise((resolve) => {
@@ -1290,7 +1024,26 @@ export default function StudentPage() {
     }
   };
 
-  // REMOVED: findActiveSession function - replaced with automatic polling
+  const openAttendanceCamera = useCallback(async () => {
+    if (cameraOpen || isCameraLaunching) return;
+    setIsCameraLaunching(true);
+    for (const tick of [3, 2, 1]) {
+      setScanCountdownValue(tick);
+      await wait(650);
+    }
+    setScanCountdownValue(null);
+    const result = await openAttendanceCameraStream();
+    if (!result.success) {
+      setMessage(result.message);
+      pushToast(result.message, "error");
+      setIsCameraLaunching(false);
+      return;
+    }
+
+    setMessage("Camera opened successfully. Ready for face scan.");
+    pushToast("Camera opened successfully", "success");
+    setIsCameraLaunching(false);
+  }, [cameraOpen, isCameraLaunching, openAttendanceCameraStream, pushToast]);
 
   const scanFaceAndMark = async () => {
     if (!activeSessionId) {
@@ -1679,22 +1432,124 @@ export default function StudentPage() {
     if (!flag) return "bg-slate-100 text-slate-600";
     return "bg-red-100 text-red-700";
   };
-  const presentCount = dailyAttendance.filter(
-    (row) => row.status === "present",
-  ).length;
-  const remoteCount = dailyAttendance.filter(
-    (row) => row.status === "remote",
-  ).length;
-  const currentLectures = upcomingLectures.filter(
-    (row) => !isLectureHistoryItem(row),
-  );
-  const lectureHistoryRows = upcomingLectures.filter((row) =>
-    isLectureHistoryItem(row),
-  );
-  const activeLectureCount = currentLectures.filter((row) =>
-    isLiveLectureRow(row),
-  ).length;
+
   const confidenceUi = getConfidenceUi(lastFaceConfidence);
+
+  // Timer countdown for active session - OPTIMIZED to prevent redundant updates
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const timer = setInterval(() => {
+      setHookRemainingSeconds((prev: number) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeSessionId, setHookRemainingSeconds]);
+
+  useEffect(() => {
+    upcomingLecturesRef.current = upcomingLectures;
+  }, [upcomingLectures]);
+
+  useEffect(() => {
+    activeLectureRef.current = activeLiveLecture;
+  }, [activeLiveLecture]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadSubjects();
+      void loadHistory();
+      void loadAnnouncements();
+      void loadBatchLectures();
+      void loadBatchHolidays();
+      void loadDailyAttendance();
+      void loadClassroomTeachers();
+      void loadNotifications();
+      void loadMiniAnalytics();
+      void loadTodaysTimetable();
+      void checkActiveLecture();
+      setAttendanceCardLoading(false);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      clearActiveSession();
+    };
+  }, [liveRoomId]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!batchKey) return;
+    const interval = setInterval(() => {
+      void loadBatchLectures();
+      void loadBatchHolidays();
+      void loadClassroomTeachers();
+      void loadDailyAttendance();
+      void loadHistory();
+      void loadNotifications();
+      void loadMiniAnalytics();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [batchKey]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  useEffect(() => {
+    if (!botScrollRef.current) return;
+    botScrollRef.current.scrollTop = botScrollRef.current.scrollHeight;
+  }, [botMessages, botLoading]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ctor = (
+      window as Window & {
+        SpeechRecognition?: SpeechRecognitionCtor;
+        webkitSpeechRecognition?: SpeechRecognitionCtor;
+      }
+    ).SpeechRecognition ||
+      (
+        window as Window & {
+          webkitSpeechRecognition?: SpeechRecognitionCtor;
+        }
+      ).webkitSpeechRecognition;
+    setVoiceSupported(Boolean(ctor));
+  }, []);
+
+  useEffect(() => {
+    if (!activeLiveLecture) {
+      setLectureBannerSeconds(0);
+      liveLectureAlertedRef.current = "";
+      return;
+    }
+
+    const updateLectureCountdown = () => {
+      const startedAt = activeLiveLecture.startedAt || activeLiveLecture.scheduledAt;
+      const startedAtMs = new Date(startedAt || 0).getTime();
+      if (!startedAtMs || !activeLiveLecture.durationMinutes) {
+        setLectureBannerSeconds(0);
+        return;
+      }
+      const endsAtMs =
+        startedAtMs + Number(activeLiveLecture.durationMinutes || 0) * 60 * 1000;
+      setLectureBannerSeconds(Math.max(0, Math.floor((endsAtMs - Date.now()) / 1000)));
+    };
+
+    updateLectureCountdown();
+    const timer = window.setInterval(updateLectureCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [activeLiveLecture]);
+
+  useEffect(() => {
+    if (!activeLiveLecture?._id) return;
+    if (liveLectureAlertedRef.current === activeLiveLecture._id) return;
+    liveLectureAlertedRef.current = activeLiveLecture._id;
+    playLiveLectureAlert();
+    speakText(
+      `${activeLiveLecture.teacherId?.name || "Teacher"} started live lecture. Join now.`,
+    );
+  }, [activeLiveLecture]);
 
   useEffect(() => {
     if (!cameraOpen || !attendanceVideoRef.current || !attendanceCanvasRef.current) {
@@ -1722,6 +1577,236 @@ export default function StudentPage() {
 
     return () => window.clearInterval(timer);
   }, [cameraOpen, attendanceCanvasRef, attendanceVideoRef]);
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!token || !user?.college) return;
+
+    const socket = connectCollegeSocket(token, user.college);
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      if (liveRoomId) socket.emit("join-room", { roomId: liveRoomId });
+      if (mediaRoomId) socket.emit("join-room", { roomId: mediaRoomId });
+      if (batchKey) {
+        socket.emit("join-batch-room", { batchId: batchKey });
+      }
+    });
+
+    socket.on("chat-message", (payload: Announcement) => {
+      if (payload?.roomId && payload.roomId !== liveRoomId) return;
+      setAnnouncements((prev) => [...prev, payload]);
+      pushToast("New lecture announcement received.", "info");
+    });
+
+    socket.on("notification:new", (payload: NotificationItem) => {
+      setNotifications((prev) =>
+        [
+          {
+            title: payload?.title || "Notification",
+            message: payload?.message || "",
+            createdAt: payload?.createdAt || new Date().toISOString(),
+            isRead: false,
+          },
+          ...prev,
+        ].slice(0, 5),
+      );
+      setUnreadNotifications((prev) => prev + 1);
+    });
+
+    socket.on("ATTENDANCE_SESSION_STARTED", (payload: AttendanceStartPayload) => {
+      if (payload?.batchKey && payload.batchKey !== batchKey) return;
+      if (payload?.sessionId) {
+        if (payload.sessionId !== prevSessionRef.current.sessionId) {
+          // Hook will handle the update
+          setMessage("Attendance session started for your batch.");
+          void loadDailyAttendance();
+          pushToast("Attendance session is live now.", "success");
+        }
+      }
+    });
+
+    socket.on("ATTENDANCE_MARKED", () => {
+      void loadDailyAttendance();
+      void loadHistory();
+    });
+
+    socket.on("ATTENDANCE_SESSION_CLOSED", () => {
+      void loadDailyAttendance();
+      clearActiveSession("Attendance session closed.");
+    });
+
+    socket.on("LECTURE_STARTED", () => {
+      void loadBatchLectures();
+      void loadNotifications();
+      pushToast("Teacher started live lecture. Join now.", "success");
+    });
+
+    socket.on("LECTURE_ENDED", () => {
+      void loadBatchLectures();
+      void loadNotifications();
+      leaveLiveClass();
+      setActiveLiveLecture(null);
+      pushToast("Live lecture ended.", "info");
+    });
+
+    socket.on("live_class_started", (payload: {
+      lectureId: string;
+      batchId: string;
+      title: string;
+      subject: string;
+      teacher: string;
+      meetingRoomId: string;
+      meetingLink: string;
+      startedAt: string;
+    }) => {
+      if (payload?.batchId && payload.batchId !== batchKey) return;
+
+      const lecture = upcomingLecturesRef.current.find((item) => item._id === payload.lectureId);
+      if (lecture) {
+        setActiveLiveLecture(lecture);
+        activeLectureRef.current = lecture;
+        pushToast(`${lecture.title} is live now!`, "success");
+      } else {
+        void loadBatchLectures();
+        pushToast("Live lecture started!", "success");
+      }
+    });
+
+    socket.on("live_class_ended", (payload: {
+      lectureId: string;
+      batchId: string;
+      endedAt: string;
+    }) => {
+      if (payload?.batchId && payload.batchId !== batchKey) return;
+
+      if (activeLectureRef.current?._id === payload.lectureId) {
+        setActiveLiveLecture(null);
+        activeLectureRef.current = null;
+        leaveLiveClass();
+        pushToast("Live lecture ended.", "info");
+      }
+    });
+
+    socket.on("TIMETABLE_UPDATED", (payload: {
+      batchKey: string;
+      date: string;
+      action: string;
+    }) => {
+      if (payload?.batchKey && payload.batchKey !== batchKey) return;
+      
+      const today = new Date().toISOString().split('T')[0];
+      if (payload.date === today) {
+        void loadTodaysTimetable();
+        pushToast(`Timetable ${payload.action} for today.`, "info");
+      }
+    });
+
+    socket.on(
+      "room-peer-left",
+      ({
+        roomId,
+        socketId: peerSocketId,
+      }: {
+        roomId: string;
+        socketId: string;
+      }) => {
+        if (roomId !== mediaRoomId) return;
+        closePeer(peerSocketId);
+      },
+    );
+
+    socket.on(
+      "webrtc-ready",
+      async ({ roomId, from }: { roomId: string; from: string }) => {
+        if (
+          !liveClassActive ||
+          roomId !== mediaRoomId ||
+          !from ||
+          from === socket.id
+        )
+          return;
+        if (!socket.id || socket.id <= from) return;
+
+        try {
+          const pc = createPeer(from, roomId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+
+          socket.emit("webrtc-signal", {
+            roomId,
+            to: from,
+            signal: { type: "offer", sdp: offer },
+          });
+        } catch {
+          setMessage("Failed to connect live class stream.");
+        }
+      },
+    );
+
+    socket.on(
+      "webrtc-signal",
+      async ({
+        roomId,
+        from,
+        signal,
+      }: {
+        roomId: string;
+        from: string;
+        signal: {
+          type: string;
+          sdp?: RTCSessionDescriptionInit;
+          candidate?: RTCIceCandidateInit;
+        };
+      }) => {
+        if (
+          !liveClassActive ||
+          roomId !== mediaRoomId ||
+          !from ||
+          from === socket.id
+        )
+          return;
+
+        try {
+          const pc = createPeer(from, roomId);
+
+          if (signal.type === "offer" && signal.sdp) {
+            await pc.setRemoteDescription(
+              new RTCSessionDescription(signal.sdp),
+            );
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            socket.emit("webrtc-signal", {
+              roomId,
+              to: from,
+              signal: { type: "answer", sdp: answer },
+            });
+            return;
+          }
+
+          if (signal.type === "answer" && signal.sdp) {
+            await pc.setRemoteDescription(
+              new RTCSessionDescription(signal.sdp),
+            );
+            return;
+          }
+
+          if (signal.type === "ice-candidate" && signal.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          }
+        } catch {
+          setMessage("Realtime connection sync failed.");
+        }
+      },
+    );
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [token, user?.college, liveRoomId, mediaRoomId, liveClassActive, batchKey]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   return (
     <ProtectedRoute allow={["student"]}>
@@ -1751,51 +1836,21 @@ export default function StudentPage() {
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-4xl font-bold text-emerald-600">
                 ✓
               </div>
-              <h2 className="mt-5 text-2xl font-semibold text-slate-950">Attendance Marked Successfully</h2>
+              <h2 className="mt-5 text-xl sm:text-2xl font-semibold text-slate-950">Attendance Marked Successfully</h2>
               <p className="mt-2 text-sm text-slate-600">Face verified, blink detected, and attendance saved successfully.</p>
             </div>
           </div>
         ) : null}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Scheduled Lectures
-                </p>
-                <p className="mt-1 text-3xl font-semibold text-slate-900">
-                  {currentLectures.length}
-                </p>
-              </article>
-              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Live Now
-                </p>
-                <p className="mt-1 text-3xl font-semibold text-slate-900">
-                  {activeLectureCount}
-                </p>
-              </article>
-              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Present Marks
-                </p>
-                <p className="mt-1 text-3xl font-semibold text-slate-900">
-                  {presentCount}
-                </p>
-              </article>
-              <article className="rounded-2xl border border-white/80 bg-white/85 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Remote Marks
-                </p>
-                <p className="mt-1 text-3xl font-semibold text-slate-900">
-                  {remoteCount}
-                </p>
-              </article>
-            </div>
-          </section>
+        <div className="grid grid-cols-1 gap-4 lg:gap-6 xl:grid-cols-2">
+          <StatsCards 
+            presentCount={presentCount}
+            remoteCount={remoteCount}
+            currentLectures={currentLectures}
+            activeLectureCount={activeLectureCount}
+          />
 
           <div className="xl:col-span-2">
-            <AttendanceHeatmap
+            <MemoizedAttendanceHeatmap
               data={miniHeatmapData}
               compact
               description="Main Dashboard Heatmap"
@@ -1804,7 +1859,7 @@ export default function StudentPage() {
             <div className="mt-2 flex justify-end">
               <Link
                 href="/student/dashboard"
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 min-h-[44px] inline-flex items-center transition-all duration-200 hover:shadow-md active:scale-[0.98]"
               >
                 Open Full Analytics
               </Link>
@@ -1812,13 +1867,13 @@ export default function StudentPage() {
           </div>
 
           {activeLiveLecture ? (
-            <section className="sticky top-3 z-20 rounded-3xl border border-emerald-200 bg-emerald-50/95 p-4 shadow-[0_16px_40px_rgba(16,185,129,0.2)] backdrop-blur xl:col-span-2">
+            <section className="sticky top-3 z-20 rounded-3xl border border-emerald-200 bg-emerald-50/95 p-4 shadow-[0_16px_40px_rgba(16,185,129,0.2)] backdrop-blur xl:col-span-2 transition-all duration-200">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-emerald-900">
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-sm sm:text-base font-semibold text-emerald-900">
                     Teacher started live lecture
                   </h2>
-                  <p className="mt-1 text-sm text-emerald-800">
+                  <p className="mt-1 text-xs sm:text-sm text-emerald-800 truncate">
                     {activeLiveLecture.title || "Live Lecture"} - {activeLiveLecture.subjectId?.name || "-"} -{" "}
                     {activeLiveLecture.teacherId?.name || "Teacher"}
                   </p>
@@ -1827,11 +1882,11 @@ export default function StudentPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-right">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  <div className="rounded-2xl border border-emerald-200 bg-white px-3 sm:px-4 py-2 text-right">
+                    <p className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
                       Ends In
                     </p>
-                    <p className="text-3xl font-extrabold tracking-wide text-emerald-700">
+                    <p className="text-2xl sm:text-3xl font-extrabold tracking-wide text-emerald-700">
                       {String(Math.floor(lectureBannerSeconds / 60)).padStart(2, "0")}:
                       {String(lectureBannerSeconds % 60).padStart(2, "0")}
                     </p>
@@ -1844,14 +1899,14 @@ export default function StudentPage() {
                         activeLiveLecture.meetingLink,
                       )
                     }
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white min-h-[44px] transition-all duration-200 hover:bg-emerald-700 active:scale-[0.98]"
                   >
                     Join Now
                   </button>
                   <button
                     type="button"
                     onClick={leaveLiveClass}
-                    className="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700"
+                    className="rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 min-h-[44px] transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                   >
                     Leave Live Lecture
                   </button>
@@ -1866,22 +1921,21 @@ export default function StudentPage() {
             </section>
           )}
 
-          {/* NEW: Attendance Start Alert Panel */}
           {activeSessionMeta && (
-            <section className="rounded-3xl border border-red-200 bg-red-50 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-red-900">
+            <section className="rounded-3xl border border-red-200 bg-red-50 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-sm sm:text-base font-semibold text-red-900">
                     Attendance Session Active!
                   </h2>
-                  <p className="text-sm text-red-700">
+                  <p className="text-xs sm:text-sm text-red-700 truncate">
                     Teacher: {activeSessionMeta.teacherName || "-"} (
                     {activeSessionMeta.teacherEmail || "-"})
                   </p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-red-600">Time Remaining</p>
-                  <p className="text-5xl font-extrabold tracking-wide text-red-600">
+                  <p className="text-3xl sm:text-5xl font-extrabold tracking-wide text-red-600">
                     {String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}
                     :{String(remainingSeconds % 60).padStart(2, "0")}
                   </p>
@@ -1889,7 +1943,7 @@ export default function StudentPage() {
               </div>
               <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
                 <button
-                  className="min-h-[44px] w-full rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                  className="min-h-[44px] w-full sm:w-auto rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 active:scale-[0.98]"
                   type="button"
                   onClick={scanFaceAndMark}
                   disabled={!activeSessionId || remainingSeconds <= 0 || !cameraOpen || isLiveScanRunning}
@@ -1902,7 +1956,7 @@ export default function StudentPage() {
                 </button>
                 {allowManualBypass && (
                   <button
-                    className="min-h-[44px] w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                    className="min-h-[44px] w-full sm:w-auto rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 active:scale-[0.98]"
                     type="button"
                     onClick={markAttendanceManual}
                     disabled={!activeSessionId || remainingSeconds <= 0}
@@ -1911,7 +1965,7 @@ export default function StudentPage() {
                   </button>
                 )}
                 <button
-                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                  className="min-h-[44px] w-full sm:w-auto rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                   type="button"
                   onClick={openAttendanceCamera}
                   disabled={!activeSessionId || remainingSeconds <= 0 || isCameraLaunching}
@@ -1919,7 +1973,7 @@ export default function StudentPage() {
                   {isCameraLaunching ? "Starting..." : "Open Camera"}
                 </button>
                 <button
-                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm sm:w-auto"
+                  className="min-h-[44px] w-full sm:w-auto rounded-lg border border-slate-300 px-4 py-3 text-sm transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                   type="button"
                   onClick={closeAttendanceCamera}
                 >
@@ -1931,7 +1985,7 @@ export default function StudentPage() {
 
           <section
             id="scan"
-            className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur"
+            className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur transition-all duration-200"
           >
             <h2 className="text-base font-semibold">
               Scan Face for Attendance
@@ -1939,8 +1993,6 @@ export default function StudentPage() {
             <p className="mt-2 text-sm text-slate-600">
               Live camera frames + geolocation are sent to backend. Keep face steady and blink once during scan.
             </p>
-
-            {/* REMOVED: Manual "Find Session" button - replaced with automatic polling */}
 
             {attendanceCardLoading ? (
               <div className="mt-3 space-y-2">
@@ -1959,7 +2011,7 @@ export default function StudentPage() {
                   {Math.ceil((activeSessionMeta.remainingSeconds || 0) / 60)}{" "}
                   min
                 </p>
-                <p className="mt-3 text-center text-6xl font-extrabold tracking-wide text-red-600">
+                <p className="mt-3 text-center text-4xl sm:text-6xl font-extrabold tracking-wide text-red-600">
                   {String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:
                   {String(remainingSeconds % 60).padStart(2, "0")}
                 </p>
@@ -1982,7 +2034,7 @@ export default function StudentPage() {
 
             <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
               <button
-                className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                className="min-h-[44px] w-full sm:w-auto rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                 type="button"
                 onClick={openAttendanceCamera}
                 disabled={!activeSessionId || remainingSeconds <= 0 || isCameraLaunching}
@@ -1990,14 +2042,14 @@ export default function StudentPage() {
                 {isCameraLaunching ? "Starting..." : "Open Camera"}
               </button>
               <button
-                className="min-h-[44px] w-full rounded-lg border border-slate-300 px-4 py-3 text-sm sm:w-auto"
+                className="min-h-[44px] w-full sm:w-auto rounded-lg border border-slate-300 px-4 py-3 text-sm transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                 type="button"
                 onClick={closeAttendanceCamera}
               >
                 Close Camera
               </button>
               <button
-                className="min-h-[44px] w-full rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                className="min-h-[44px] w-full sm:w-auto rounded-lg bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:bg-[#135ed8]/90 active:scale-[0.98]"
                 type="button"
                 onClick={scanFaceAndMark}
                 disabled={!activeSessionId || remainingSeconds <= 0 || !cameraOpen || isLiveScanRunning}
@@ -2010,7 +2062,7 @@ export default function StudentPage() {
               </button>
               {allowManualBypass ? (
                 <button
-                  className="min-h-[44px] w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                  className="min-h-[44px] w-full sm:w-auto rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:bg-amber-100 active:scale-[0.98]"
                   type="button"
                   onClick={markAttendanceManual}
                   disabled={!activeSessionId || remainingSeconds <= 0}
@@ -2079,14 +2131,14 @@ export default function StudentPage() {
                   setFaceHint("Reopen the camera and try again.");
                   setScanStage("idle");
                 }}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:border-slate-400 hover:shadow-md active:scale-[0.98] min-h-[44px]"
               >
                 Retry Scan
               </button>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur transition-all duration-200">
             <h2 className="text-base font-semibold">
               Realtime Class (Audio/Video)
             </h2>
@@ -2098,7 +2150,7 @@ export default function StudentPage() {
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button
-                className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white"
+                className="rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-semibold text-white min-h-[44px] transition-all duration-200 hover:bg-[#135ed8]/90 active:scale-[0.98]"
                 type="button"
                 onClick={() =>
                   activeLiveLecture
@@ -2112,7 +2164,7 @@ export default function StudentPage() {
                 {activeLiveLecture ? "Join Live Lecture" : "Join Live Class"}
               </button>
               <button
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-[44px] transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                 type="button"
                 onClick={leaveLiveClass}
               >
@@ -2148,9 +2200,9 @@ export default function StudentPage() {
             </p>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-red-700">
                   Notification Section
                 </p>
@@ -2164,7 +2216,7 @@ export default function StudentPage() {
                 </span>
                 <Link
                   href="/notifications"
-                  className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700"
+                  className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 min-h-[44px] inline-flex items-center transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                 >
                   Open Notification Center
                 </Link>
@@ -2176,7 +2228,7 @@ export default function StudentPage() {
                 {notifications.map((item, index) => (
                   <div
                     key={`${item._id || "n"}-${index}`}
-                    className="rounded-lg border border-red-100 bg-white px-3 py-2"
+                    className="rounded-lg border border-red-100 bg-white px-3 py-2 transition-all duration-200 hover:shadow-md"
                   >
                     <p className="text-sm font-semibold text-slate-800">
                       {item.title || "Notification"}
@@ -2197,7 +2249,7 @@ export default function StudentPage() {
             <h2 className="text-base font-semibold">
               Teacher Lecture Messages
             </h2>
-            <div className="mt-3 max-h-56 space-y-2 overflow-auto rounded-lg border border-slate-200 p-3">
+            <div className="mt-3 max-h-56 space-y-2 overflow-auto rounded-lg border border-slate-200 p-3 overflow-x-auto">
               {announcements.map((item, index) => (
                 <div
                   key={`${item.time || "t"}-${index}`}
@@ -2218,15 +2270,15 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
-            <div className="flex items-center justify-between">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold">
                 Upcoming Scheduled Lectures
               </h2>
               <button
                 type="button"
                 onClick={() => void loadBatchLectures()}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 min-h-[44px] transition-all duration-200 hover:shadow-md active:scale-[0.98]"
               >
                 Refresh
               </button>
@@ -2239,33 +2291,33 @@ export default function StudentPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">Title</th>
-                    <th className="py-2">Subject</th>
-                    <th className="py-2">Purpose</th>
-                    <th className="py-2">Teacher</th>
-                    <th className="py-2">Scheduled Time</th>
-                    <th className="py-2">Duration</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Meeting Link</th>
-                    <th className="py-2">Action</th>
-                  </tr>
+                    <th className="py-2 px-2">Title</th>
+                    <th className="py-2 px-2">Subject</th>
+                    <th className="py-2 px-2">Purpose</th>
+                    <th className="py-2 px-2">Teacher</th>
+                    <th className="py-2 px-2">Scheduled Time</th>
+                    <th className="py-2 px-2">Duration</th>
+                    <th className="py-2 px-2">Status</th>
+                    <th className="py-2 px-2">Meeting Link</th>
+                    <th className="py-2 px-2">Action</th>
+                   </tr>
                 </thead>
                 <tbody>
                   {currentLectures.map((lecture) => (
                     <tr key={lecture._id} className="border-b border-slate-100">
-                      <td className="py-2">{lecture.title}</td>
-                      <td className="py-2">{lecture.subjectId?.name || "-"}</td>
-                      <td className="py-2">{lecture.purpose || "-"}</td>
-                      <td className="py-2">{lecture.teacherId?.name || "-"}</td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.title}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.subjectId?.name || "-"}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.purpose || "-"}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.teacherId?.name || "-"}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {new Date(lecture.scheduledAt).toLocaleString()}
                       </td>
-                      <td className="py-2">{lecture.durationMinutes} min</td>
-                      <td className="py-2">{lecture.status || "-"}</td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.durationMinutes} min</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.status || "-"}</td>
+                      <td className="py-2 px-2">
                         {lecture.meetingLink ? (
                           <a
-                            className="text-[#135ed8] underline"
+                            className="text-[#135ed8] underline text-xs sm:text-sm"
                             href={lecture.meetingLink}
                             target="_blank"
                             rel="noreferrer"
@@ -2276,7 +2328,7 @@ export default function StudentPage() {
                           "-"
                         )}
                       </td>
-                      <td className="py-2">
+                      <td className="py-2 px-2">
                         <button
                           type="button"
                           disabled={
@@ -2289,7 +2341,7 @@ export default function StudentPage() {
                               lecture.meetingLink,
                             )
                           }
-                          className="rounded-lg bg-[#135ed8] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-lg bg-[#135ed8] px-2 sm:px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:bg-[#135ed8]/90 active:scale-[0.98] min-h-[44px] sm:min-h-0"
                         >
                           Join
                         </button>
@@ -2298,7 +2350,7 @@ export default function StudentPage() {
                   ))}
                   {currentLectures.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={9}>
+                      <td className="py-3 text-slate-500 px-2" colSpan={9}>
                         No scheduled lectures found for your batch.
                       </td>
                     </tr>
@@ -2308,7 +2360,7 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
             <h2 className="text-base font-semibold">Lecture History</h2>
             <p className="mt-2 text-sm text-slate-600">
               Completed and closed lectures move here automatically.
@@ -2317,30 +2369,30 @@ export default function StudentPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">Title</th>
-                    <th className="py-2">Subject</th>
-                    <th className="py-2">Teacher</th>
-                    <th className="py-2">Scheduled Time</th>
-                    <th className="py-2">Duration</th>
-                    <th className="py-2">Status</th>
+                    <th className="py-2 px-2">Title</th>
+                    <th className="py-2 px-2">Subject</th>
+                    <th className="py-2 px-2">Teacher</th>
+                    <th className="py-2 px-2">Scheduled Time</th>
+                    <th className="py-2 px-2">Duration</th>
+                    <th className="py-2 px-2">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {lectureHistoryRows.map((lecture) => (
                     <tr key={lecture._id} className="border-b border-slate-100">
-                      <td className="py-2">{lecture.title}</td>
-                      <td className="py-2">{lecture.subjectId?.name || "-"}</td>
-                      <td className="py-2">{lecture.teacherId?.name || "-"}</td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.title}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.subjectId?.name || "-"}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.teacherId?.name || "-"}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {new Date(lecture.scheduledAt).toLocaleString()}
                       </td>
-                      <td className="py-2">{lecture.durationMinutes} min</td>
-                      <td className="py-2">{lecture.status || "ENDED"}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.durationMinutes} min</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{lecture.status || "ENDED"}</td>
                     </tr>
                   ))}
                   {lectureHistoryRows.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={6}>
+                      <td className="py-3 text-slate-500 px-2" colSpan={6}>
                         No completed lectures yet.
                       </td>
                     </tr>
@@ -2350,7 +2402,7 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
             <h2 className="text-base font-semibold">Holiday Announcements</h2>
             <p className="mt-2 text-sm text-slate-600">
               Class coordinator/teacher holiday notices for your batch.
@@ -2359,26 +2411,26 @@ export default function StudentPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">From</th>
-                    <th className="py-2">To</th>
-                    <th className="py-2">Reason</th>
+                    <th className="py-2 px-2">From</th>
+                    <th className="py-2 px-2">To</th>
+                    <th className="py-2 px-2">Reason</th>
                   </tr>
                 </thead>
                 <tbody>
                   {upcomingHolidays.map((holiday) => (
                     <tr key={holiday._id} className="border-b border-slate-100">
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {new Date(holiday.fromDate).toLocaleDateString()}
                       </td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {new Date(holiday.toDate).toLocaleDateString()}
                       </td>
-                      <td className="py-2">{holiday.reason}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">{holiday.reason}</td>
                     </tr>
                   ))}
                   {upcomingHolidays.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={3}>
+                      <td className="py-3 text-slate-500 px-2" colSpan={3}>
                         No holidays announced.
                       </td>
                     </tr>
@@ -2390,22 +2442,22 @@ export default function StudentPage() {
 
           <section
             id="history"
-            className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2"
+            className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200"
           >
             <h2 className="text-base font-semibold">Attendance History</h2>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">Subject</th>
-                    <th className="py-2">Percentage</th>
+                    <th className="py-2 px-2">Subject</th>
+                    <th className="py-2 px-2">Percentage</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.map((row, index) => (
                     <tr key={index} className="border-b border-slate-100">
-                      <td className="py-2">{String(row.subject || "-")}</td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">{String(row.subject || "-")}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {typeof row.percentage === "number"
                           ? `${row.percentage}%`
                           : "-"}
@@ -2417,7 +2469,7 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
             <h2 className="text-base font-semibold">
               Virtual Classroom Details
             </h2>
@@ -2426,8 +2478,8 @@ export default function StudentPage() {
               mappings.
             </p>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 p-3">
+            <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-3 transition-all duration-200 hover:shadow-md">
                 <p className="text-xs uppercase tracking-wide text-slate-500">
                   Department
                 </p>
@@ -2438,7 +2490,7 @@ export default function StudentPage() {
                   {classroomBatchInfo?.departmentCode || "-"}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 p-3">
+              <div className="rounded-xl border border-slate-200 p-3 transition-all duration-200 hover:shadow-md">
                 <p className="text-xs uppercase tracking-wide text-slate-500">
                   Class
                 </p>
@@ -2452,7 +2504,7 @@ export default function StudentPage() {
               </div>
             </div>
 
-            <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
+            <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3 transition-all duration-200 hover:shadow-md">
               <p className="text-xs uppercase tracking-wide text-violet-700">
                 Class Coordinator
               </p>
@@ -2472,11 +2524,11 @@ export default function StudentPage() {
               )}
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-2">
               {classroomTeachers.slice(0, 4).map((teacher) => (
                 <article
                   key={teacher._id}
-                  className="rounded-xl border border-slate-200 p-3"
+                  className="rounded-xl border border-slate-200 p-3 transition-all duration-200 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
                 >
                   <p className="text-sm font-semibold text-slate-900">
                     {teacher.name || "-"}
@@ -2505,20 +2557,20 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.08)] xl:col-span-2">
+          <section className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.08)] xl:col-span-2 transition-all duration-200">
             <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#ffffff,#f3f7ff)] px-4 py-4 sm:px-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
                   <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
                     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
                       AI
                     </span>
                     CampusGenie
                   </div>
-                  <h2 className="mt-3 text-lg font-semibold text-slate-900">
+                  <h2 className="mt-3 text-base sm:text-lg font-semibold text-slate-900">
                     Student Assistant
                   </h2>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-xs sm:text-sm text-slate-600">
                     Ask about attendance, holidays, classes, or the next thing you need to do.
                   </p>
                 </div>
@@ -2533,7 +2585,7 @@ export default function StudentPage() {
                     key={prompt}
                     type="button"
                     onClick={() => void submitCampusGeniePrompt(prompt)}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:shadow-md active:scale-[0.98] min-h-[44px]"
                   >
                     {prompt}
                   </button>
@@ -2557,7 +2609,7 @@ export default function StudentPage() {
                   ) : null}
 
                   <div
-                    className={`max-w-[92%] rounded-[1.4rem] px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[78%] ${
+                    className={`max-w-[92%] rounded-[1.4rem] px-4 py-3 text-sm leading-6 shadow-sm sm:max-w-[78%] transition-all duration-200 ${
                       item.role === "assistant"
                         ? "rounded-tl-md border border-slate-200 bg-white text-slate-800"
                         : "rounded-tr-md bg-slate-900 text-white"
@@ -2621,7 +2673,7 @@ export default function StudentPage() {
                       type="button"
                       onClick={voiceListening ? stopVoiceInput : startVoiceInput}
                       disabled={!voiceSupported}
-                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-50 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
                     >
                       {voiceListening
                         ? "Stop Voice"
@@ -2633,7 +2685,7 @@ export default function StudentPage() {
                       type="button"
                       onClick={() => void askCampusGenie()}
                       disabled={botLoading || !botInput.trim()}
-                      className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-slate-800 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 min-h-[44px]"
                     >
                       Send
                     </button>
@@ -2643,7 +2695,7 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
             <h2 className="text-base font-semibold">Today&apos;s Schedule</h2>
             <p className="mt-2 text-sm text-slate-600">
               Your classes for today based on the manual timetable set by your coordinator.
@@ -2659,12 +2711,12 @@ export default function StudentPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-slate-500">
-                      <th className="py-2">Time</th>
-                      <th className="py-2">Subject</th>
-                      <th className="py-2">Teacher</th>
-                      <th className="py-2">Type</th>
-                      <th className="py-2">Status</th>
-                    </tr>
+                      <th className="py-2 px-2">Time</th>
+                      <th className="py-2 px-2">Subject</th>
+                      <th className="py-2 px-2">Teacher</th>
+                      <th className="py-2 px-2">Type</th>
+                      <th className="py-2 px-2">Status</th>
+                     </tr>
                   </thead>
                   <tbody>
                     {todaysTimetable.slots?.map((period, index: number) => (
@@ -2673,12 +2725,12 @@ export default function StudentPage() {
                           ? "border-emerald-100 bg-emerald-50/70"
                           : "border-slate-100"
                       }`}>
-                        <td className="py-2">
+                        <td className="py-2 px-2 text-xs sm:text-sm">
                           {period.startTime} {period.endTime ? `- ${period.endTime}` : ""}
                         </td>
-                        <td className="py-2">{period.subject || "-"}</td>
-                        <td className="py-2">{period.teacherName || "-"}</td>
-                        <td className="py-2">
+                        <td className="py-2 px-2 text-xs sm:text-sm">{period.subject || "-"}</td>
+                        <td className="py-2 px-2 text-xs sm:text-sm">{period.teacherName || "-"}</td>
+                        <td className="py-2 px-2">
                           <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
                             period.type === "theory" ? "bg-blue-100 text-blue-700" :
                             period.type === "practical" ? "bg-green-100 text-green-700" :
@@ -2688,7 +2740,7 @@ export default function StudentPage() {
                             {period.type || "theory"}
                           </span>
                         </td>
-                        <td className="py-2">
+                        <td className="py-2 px-2">
                           <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
                             getTimetableSlotStatus(period) === "active"
                               ? "bg-emerald-100 text-emerald-700"
@@ -2711,7 +2763,7 @@ export default function StudentPage() {
                     ))}
                     {todaysTimetable.slots?.length === 0 ? (
                       <tr>
-                        <td className="py-3 text-slate-500" colSpan={5}>
+                        <td className="py-3 text-slate-500 px-2" colSpan={5}>
                           No classes scheduled for today.
                         </td>
                       </tr>
@@ -2728,15 +2780,15 @@ export default function StudentPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
-            <div className="flex items-center justify-between">
+          <section className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2 transition-all duration-200">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold">
                 Daily Attendance Detail
               </h2>
               <button
                 type="button"
                 onClick={exportDailyAttendanceCsv}
-                className="rounded-lg bg-[#135ed8] px-3 py-1.5 text-xs font-semibold text-white"
+                className="rounded-lg bg-[#135ed8] px-3 py-1.5 text-xs font-semibold text-white transition-all duration-200 hover:bg-[#135ed8]/90 hover:shadow-md active:scale-[0.98] min-h-[44px]"
               >
                 Export CSV
               </button>
@@ -2749,13 +2801,13 @@ export default function StudentPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">Date</th>
-                    <th className="py-2">Subject</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Flag</th>
-                    <th className="py-2">College Dist.</th>
-                    <th className="py-2">Session Dist.</th>
-                  </tr>
+                    <th className="py-2 px-2">Date</th>
+                    <th className="py-2 px-2">Subject</th>
+                    <th className="py-2 px-2">Status</th>
+                    <th className="py-2 px-2">Flag</th>
+                    <th className="py-2 px-2">College Dist.</th>
+                    <th className="py-2 px-2">Session Dist.</th>
+                   </tr>
                 </thead>
                 <tbody>
                   {dailyAttendance.map((row) => (
@@ -2763,24 +2815,24 @@ export default function StudentPage() {
                       key={row.sessionId}
                       className="border-b border-slate-100"
                     >
-                      <td className="py-2">{row.date}</td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">{row.date}</td>
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {row.subject} ({row.subjectCode})
                       </td>
-                      <td className="py-2 capitalize">{row.status}</td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm capitalize">{row.status}</td>
+                      <td className="py-2 px-2">
                         <span
                           className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${flagClass(row.locationFlag)}`}
                         >
                           {row.locationFlag || "pending"}
                         </span>
                       </td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {typeof row.distanceMeters === "number"
                           ? `${Math.round(row.distanceMeters)} m`
                           : "-"}
                       </td>
-                      <td className="py-2">
+                      <td className="py-2 px-2 text-xs sm:text-sm">
                         {typeof row.gpsDistance === "number"
                           ? `${Math.round(row.gpsDistance)} m`
                           : "-"}
@@ -2789,7 +2841,7 @@ export default function StudentPage() {
                   ))}
                   {dailyAttendance.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-slate-500" colSpan={6}>
+                      <td className="py-3 text-slate-500 px-2" colSpan={6}>
                         No daily attendance rows available.
                       </td>
                     </tr>
