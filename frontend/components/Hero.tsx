@@ -11,26 +11,26 @@ const Hero = () => {
     >
 
       {/* TEXT */}
-      <div className="flex flex-col items-center text-center font-extrabold gap-2 sm:gap-3 text-gray-700 tracking-wide z-10">
+      <div className="flex flex-col items-center text-center font-extrabold gap-2 sm:gap-3 text-gray-700 tracking-wide z-10 max-w-5xl">
         
-        <h1 className="text-2xl sm:text-3xl md:text-5xl">
+        <h1 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl xl:text-7xl">
           Next-GEN FACIAL
         </h1>
-        <h1 className="text-2xl sm:text-3xl md:text-5xl">
+        <h1 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl xl:text-7xl">
           RECOGNITION
         </h1>
-        <h1 className="text-2xl sm:text-3xl md:text-5xl">
+        <h1 className="text-2xl sm:text-3xl md:text-5xl lg:text-6xl xl:text-7xl">
           ATTENDANCE SYSTEM
         </h1>
 
       </div>
 
       {/* IMAGE SECTION */}
-      <div className="relative mt-8 sm:mt-10 flex justify-center items-center w-full max-w-5xl">
+      <div className="relative mt-10 flex justify-center items-center w-full max-w-7xl xl:max-w-[1400px]">
 
         {/* Background Text */}
         <h1
-          className="absolute text-[40px] sm:text-[70px] md:text-[110px] font-black tracking-tight 
+          className="absolute text-[50px] sm:text-[80px] md:text-[130px] lg:text-[180px] xl:text-[220px] font-black tracking-tight 
                      text-transparent opacity-10 
                      pointer-events-none select-none 
                      whitespace-nowrap z-0"
@@ -44,8 +44,8 @@ const Hero = () => {
 
           {/* Image */}
           <Image
-            width={800}
-            height={520}
+            width={1200}
+            height={700}
             className="w-full h-auto object-contain"
             src="/heroimg.png"
             alt="Hero"
