@@ -11,12 +11,10 @@ type InviteData = {
   studentEmail?: string;
   rollNo?: string;
   hasDirectActivation?: boolean;
-  isActivated?: boolean;
 };
 
-const parseApiError = (error: unknown, fallback: string) => {
-  const maybeMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
-  return maybeMessage || fallback;
+const parseApiError = (error: any, fallback: string) => {
+  return error?.response?.data?.message || fallback;
 };
 
 function StudentRegisterPageContent() {
@@ -27,7 +25,7 @@ function StudentRegisterPageContent() {
   const [inviteCode, setInviteCode] = useState("");
   const [isCodeVerified, setIsCodeVerified] = useState(false);
   const [isValid, setIsValid] = useState(false);
-  const [message, setMessage] = useState("Invite code verify karo. Code ke bina registration allowed nahi hai.");
+  const [message, setMessage] = useState("Invite code verify karo.");
   const [inviteMeta, setInviteMeta] = useState<InviteData | null>(null);
 
   const [studentForm, setStudentForm] = useState({
@@ -38,139 +36,178 @@ function StudentRegisterPageContent() {
     parentEmail: "",
   });
 
-  const validateToken = useCallback(async (nextToken: string) => {
-    if (!nextToken) {
-      setIsValid(false);
-      setIsCodeVerified(false);
-      setInviteMeta(null);
-      return;
-    }
+  const router = useRouter();
 
+  // ✅ Validate Token
+  const validateToken = useCallback(async (nextToken: string) => {
     try {
       const { data } = await publicApi.get(`/students/validate-invite/${nextToken}`);
-      setIsValid(Boolean(data?.success));
+      setIsValid(data?.success);
       setInviteMeta(data?.data || null);
-      setMessage(data?.success ? "Invite valid hai. Complete onboarding to continue." : "Invite is invalid.");
-    } catch (error) {
+      setMessage(data?.success ? "Invite valid hai." : "Invalid invite.");
+    } catch (err) {
       setIsValid(false);
-      setIsCodeVerified(false);
       setInviteMeta(null);
-      setMessage(parseApiError(error, "Invite invalid or expired."));
+      setMessage(parseApiError(err, "Invite invalid."));
     }
   }, []);
 
   useEffect(() => {
-    if (tokenFromUrl) {
-      const timer = setTimeout(() => {
-        void validateToken(tokenFromUrl);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
+    if (tokenFromUrl) validateToken(tokenFromUrl);
   }, [tokenFromUrl, validateToken]);
 
+  // ✅ Verify Code
   const onResolveCode = async () => {
-    if (!inviteCode.trim()) {
-      setMessage("Enter invite code first.");
-      setIsCodeVerified(false);
-      return;
-    }
-
     try {
-      const { data } = await publicApi.get(`/students/resolve-invite-code/${inviteCode.trim().toUpperCase()}`);
-      const nextToken = data?.token || "";
-      if (tokenFromUrl && nextToken !== tokenFromUrl) {
-        setIsCodeVerified(false);
-        setIsValid(false);
-        setInviteMeta(null);
-        setMessage("Invite code is valid but does not match this invite link. Use correct code/link pair.");
-        return;
-      }
+      const { data } = await publicApi.get(
+        `/students/resolve-invite-code/${inviteCode.trim().toUpperCase()}`
+      );
+
+      const nextToken = data?.token;
       setToken(nextToken);
       await validateToken(nextToken);
+
       setIsCodeVerified(true);
-      setMessage("Invite code verified. You can register now.");
-    } catch (error) {
+      setMessage("Invite code verified.");
+    } catch (err) {
       setIsCodeVerified(false);
-      setMessage(parseApiError(error, "Invalid invite code."));
+      setMessage(parseApiError(err, "Invalid code."));
     }
   };
 
-  const router = useRouter();
-
+  // ✅ REGISTER FIXED
   const onRegister = async (e: FormEvent) => {
     e.preventDefault();
+
     const activeToken = token || tokenFromUrl;
+
     if (!activeToken) {
-      setMessage("Invite token missing. Use link or code first.");
+      setMessage("Token missing.");
       return;
     }
-    if (!inviteMeta?.hasDirectActivation && !inviteCode.trim()) {
-      setMessage("Invite code required. Registration without code is blocked.");
+
+    // ✅ Required fields check
+    if (!studentForm.name || !studentForm.email || !studentForm.rollNo) {
+      setMessage("Fill all required fields.");
       return;
     }
-    if (!inviteMeta?.hasDirectActivation && !isCodeVerified) {
-      setMessage("Invite code verify karo first.");
+
+    // ✅ Password fix (IMPORTANT)
+    if (!inviteMeta?.hasDirectActivation && !studentForm.password) {
+      setMessage("Password required.");
       return;
     }
 
     try {
-      const { data } = await publicApi.post("/students/register", {
+      const payload: any = {
         token: activeToken,
-        inviteCode: inviteCode.trim().toUpperCase(),
-        ...studentForm,
-      });
-      setMessage(data?.message || "Student registration completed. Please login.");
-      setStudentForm({ name: "", email: "", password: "", rollNo: "", parentEmail: "" });
+        inviteCode: inviteCode.trim().toUpperCase() || undefined,
+        name: studentForm.name,
+        email: studentForm.email,
+        rollNo: studentForm.rollNo,
+        parentEmail: studentForm.parentEmail || undefined,
+      };
 
-      if (typeof window !== "undefined" && data?.token && data?.user) {
-        localStorage.setItem("va_token", data.token);
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("va_user", JSON.stringify(data.user));
+      // only send password if exists
+      if (studentForm.password) {
+        payload.password = studentForm.password;
       }
 
-      router.replace(data?.nextStep || "/student/face-register");
-    } catch (error) {
-      setMessage(parseApiError(error, "Registration failed."));
+      console.log("REGISTER PAYLOAD:", payload);
+
+      const { data } = await publicApi.post("/students/register", payload);
+
+      setMessage("Registration successful");
+
+      // save login
+      if (data?.token) {
+        localStorage.setItem("token", data.token);
+      }
+
+      router.push("/student/face-register");
+    } catch (err) {
+      console.error(err);
+      setMessage(parseApiError(err, "Registration failed"));
     }
   };
 
   return (
     <section className="flex min-h-screen items-center justify-center bg-[#eef4ff] p-4">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Student Registration</h2>
-        <p className="mt-1 text-sm text-slate-600">Join classroom using invite link or invite code.</p>
+      <div className="w-full max-w-md bg-white p-6 rounded-xl shadow">
 
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+        <h2 className="text-lg font-semibold">Student Registration</h2>
+
+        {/* Invite Code */}
+        <div className="flex gap-2 mt-4">
           <input
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Enter Invite Code"
+            className="flex-1 border px-3 py-2 rounded"
+            placeholder="Invite Code"
             value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+            onChange={(e) => setInviteCode(e.target.value)}
           />
-          <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm" type="button" onClick={onResolveCode}>
+          <button onClick={onResolveCode} className="px-3 py-2 border rounded">
             Verify
           </button>
         </div>
 
-        <div className="mt-3 rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{message}</div>
-        {inviteMeta ? (
-          <div className="mt-2 space-y-1 text-xs text-slate-500">
-            <p>Class: {inviteMeta.year || "-"} / {inviteMeta.division || "-"}</p>
-            {inviteMeta.studentEmail ? <p>Email: {inviteMeta.studentEmail}</p> : null}
-            {inviteMeta.rollNo ? <p>Roll No: {inviteMeta.rollNo}</p> : null}
-          </div>
-        ) : null}
+        <p className="mt-3 text-sm text-gray-500">{message}</p>
 
+        {/* FORM */}
         <form onSubmit={onRegister} className="mt-4 space-y-2">
-          <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Full Name" value={studentForm.name || inviteMeta?.studentName || ""} onChange={(e) => setStudentForm((p) => ({ ...p, name: e.target.value }))} required disabled={!isValid || Boolean(inviteMeta?.studentName)} />
-          <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="email" placeholder="Email" value={studentForm.email || inviteMeta?.studentEmail || ""} onChange={(e) => setStudentForm((p) => ({ ...p, email: e.target.value }))} required disabled={!isValid || Boolean(inviteMeta?.studentEmail)} />
-          <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Roll Number" value={studentForm.rollNo || inviteMeta?.rollNo || ""} onChange={(e) => setStudentForm((p) => ({ ...p, rollNo: e.target.value }))} required disabled={!isValid || Boolean(inviteMeta?.rollNo)} />
-          <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="email" placeholder="Parent Email (optional)" value={studentForm.parentEmail} onChange={(e) => setStudentForm((p) => ({ ...p, parentEmail: e.target.value }))} disabled={!isValid} />
-          {!inviteMeta?.hasDirectActivation ? (
-            <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" type="password" placeholder="Password" value={studentForm.password} onChange={(e) => setStudentForm((p) => ({ ...p, password: e.target.value }))} required disabled={!isValid} />
-          ) : null}
-          <button className="mt-2 w-full rounded-lg bg-[#135ed8] px-3 py-2 text-sm font-medium text-white disabled:opacity-60" type="submit" disabled={!isValid || (!inviteMeta?.hasDirectActivation && !isCodeVerified)}>
-            {inviteMeta?.hasDirectActivation ? "Start Face Registration" : "Register Student"}
+
+          <input
+            className="w-full border px-3 py-2 rounded"
+            placeholder="Name"
+            value={studentForm.name}
+            onChange={(e) =>
+              setStudentForm((p) => ({ ...p, name: e.target.value }))
+            }
+          />
+
+          <input
+            className="w-full border px-3 py-2 rounded"
+            placeholder="Email"
+            value={studentForm.email}
+            onChange={(e) =>
+              setStudentForm((p) => ({ ...p, email: e.target.value }))
+            }
+          />
+
+          <input
+            className="w-full border px-3 py-2 rounded"
+            placeholder="Roll No"
+            value={studentForm.rollNo}
+            onChange={(e) =>
+              setStudentForm((p) => ({ ...p, rollNo: e.target.value }))
+            }
+          />
+
+          <input
+            className="w-full border px-3 py-2 rounded"
+            placeholder="Parent Email"
+            value={studentForm.parentEmail}
+            onChange={(e) =>
+              setStudentForm((p) => ({ ...p, parentEmail: e.target.value }))
+            }
+          />
+
+          {!inviteMeta?.hasDirectActivation && (
+            <input
+              type="password"
+              className="w-full border px-3 py-2 rounded"
+              placeholder="Password"
+              value={studentForm.password}
+              onChange={(e) =>
+                setStudentForm((p) => ({ ...p, password: e.target.value }))
+              }
+            />
+          )}
+
+          <button
+            type="submit"
+            className="w-full bg-blue-600 text-white py-2 rounded mt-2"
+          >
+            Register
           </button>
         </form>
       </div>
@@ -178,9 +215,9 @@ function StudentRegisterPageContent() {
   );
 }
 
-export default function StudentRegisterPage() {
+export default function Page() {
   return (
-    <Suspense fallback={<section className="flex min-h-screen items-center justify-center bg-[#eef4ff] p-4"><div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Loading registration...</div></section>}>
+    <Suspense fallback={<div>Loading...</div>}>
       <StudentRegisterPageContent />
     </Suspense>
   );
