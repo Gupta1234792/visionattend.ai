@@ -16,15 +16,22 @@ const Hero = () => {
       <div className="relative mt-6 flex justify-center items-center">
 
         {/* Background Stroke Text */}
-        <h1
-          className="absolute text-[110px] font-black tracking-tight 
-                     text-transparent opacity-10 
-                     pointer-events-none select-none 
-                     whitespace-nowrap z-0"
-          style={{ WebkitTextStroke: "2px black" }}
-        >
-          ViSionattend.ai
-        </h1>
+      <h1
+  className="
+    absolute 
+    text-[36px] sm:text-[70px] md:text-[110px] 
+    font-black tracking-tight 
+    text-transparent opacity-10 
+    pointer-events-none select-none 
+    text-center leading-none
+    break-words sm:whitespace-nowrap
+    px-2
+    z-0
+  "
+  style={{ WebkitTextStroke: "2px black" }}
+>
+  Visionattend.ai
+</h1>
 
         {/* Image Container */}
         <div className="relative z-10 overflow-hidden rounded-xl">
