@@ -63,9 +63,13 @@ const Navbar = () => {
             <li key={item.id}>
               <button
                 onClick={() => goToSection(item.id)}
-                className="transition duration-200 hover:text-black"
+                className="relative group text-gray-700 transition duration-300"
               >
-                {item.label}
+                <span className="relative">
+                  {item.label}
+                  {/* Underline animation */}
+                  <span className="absolute left-0 -bottom-1 h-[2px] w-0 bg-black transition-all duration-300 group-hover:w-full"></span>
+                </span>
               </button>
             </li>
           ))}
@@ -77,9 +81,10 @@ const Navbar = () => {
           {/* Sign In */}
           <button
             onClick={() => router.push("/auth")}
-            className="hidden sm:flex group relative items-center gap-2 overflow-hidden rounded-md bg-gray-700 px-4 py-2 text-sm text-white shadow-md transition duration-300 hover:shadow-lg"
+            className="hidden sm:flex group relative items-center gap-2 overflow-hidden rounded-md bg-gray-800 px-4 py-2 text-sm text-white shadow-md transition-all duration-300 hover:shadow-xl hover:scale-105 active:scale-95"
           >
             <span className="relative z-10">Sign In</span>
+
             <span className="relative z-10 flex items-center justify-center overflow-hidden rounded-full bg-white p-1 text-black">
               <span className="inline-block transition-transform duration-500 group-hover:-translate-y-6 group-hover:translate-x-6">
                 <ArrowUpRight size={16} />
@@ -92,7 +97,7 @@ const Navbar = () => {
 
           {/* Hamburger */}
           <button
-            className="md:hidden"
+            className="md:hidden transition-transform duration-300 hover:scale-110 active:scale-90"
             onClick={() => setIsOpen(!isOpen)}
           >
             {isOpen ? <X size={28} /> : <Menu size={28} />}
@@ -100,39 +105,66 @@ const Navbar = () => {
         </div>
       </div>
 
-      {/* Mobile Menu (Shutter Animation) */}
+      {/* Mobile Menu (Shutter + Smooth + Stagger) */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "100vh", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.5, ease: "easeInOut" }}
+            initial={{ height: 0 }}
+            animate={{ height: "100vh" }}
+            exit={{ height: 0 }}
+            transition={{ type: "spring", stiffness: 80, damping: 18 }}
             className="overflow-hidden bg-white md:hidden"
           >
-            <div className="flex flex-col items-center justify-center gap-8 py-10 text-lg font-medium">
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
+              variants={{
+                visible: {
+                  transition: {
+                    staggerChildren: 0.08,
+                    delayChildren: 0.2
+                  }
+                }
+              }}
+              className="flex flex-col items-center justify-center gap-8 py-10 text-lg font-medium"
+            >
               
               {navItems.map((item) => (
-                <button
+                <motion.button
                   key={item.id}
                   onClick={() => goToSection(item.id)}
-                  className="transition hover:text-black"
+                  variants={{
+                    hidden: { opacity: 0, y: -20 },
+                    visible: { opacity: 1, y: 0 }
+                  }}
+                  transition={{ type: "spring", stiffness: 120 }}
+                  className="relative text-gray-700 transition"
                 >
-                  {item.label}
-                </button>
+                  <span className="group relative">
+                    {item.label}
+                    <span className="absolute left-0 -bottom-1 h-[2px] w-0 bg-black transition-all duration-300 group-hover:w-full"></span>
+                  </span>
+                </motion.button>
               ))}
 
-              <button
+              {/* Sign In inside mobile */}
+              <motion.button
                 onClick={() => {
                   setIsOpen(false);
                   router.push("/auth");
                 }}
-                className="rounded-md bg-gray-800 px-6 py-2 text-white"
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: { opacity: 1, y: 0 }
+                }}
+                transition={{ type: "spring", stiffness: 120 }}
+                className="rounded-md bg-gray-800 px-6 py-2 text-white transition hover:scale-105 active:scale-95"
               >
                 Sign In
-              </button>
+              </motion.button>
 
-            </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
