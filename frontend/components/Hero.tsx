@@ -5,7 +5,10 @@ import Image from "next/image";
 
 const Hero = () => {
   return (
-    <div className="relative flex flex-col items-center pt-12 sm:pt-16 px-4">
+    <div
+      id="home"
+      className="relative flex flex-col items-center pt-20 sm:pt-24 md:pt-28 px-4"
+    >
 
       {/* TEXT */}
       <div className="flex flex-col items-center text-center font-extrabold gap-2 sm:gap-3 text-gray-700 tracking-wide z-10">
@@ -23,7 +26,7 @@ const Hero = () => {
       </div>
 
       {/* IMAGE SECTION */}
-      <div className="relative mt-6 sm:mt-8 flex justify-center items-center w-full max-w-5xl">
+      <div className="relative mt-8 sm:mt-10 flex justify-center items-center w-full max-w-5xl">
 
         {/* Background Text */}
         <h1
