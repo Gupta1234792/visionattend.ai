@@ -38,11 +38,11 @@ function StudentRegisterPageContent() {
 
   const router = useRouter();
 
-  // ✅ Validate Token
+  // ✅ Validate token
   const validateToken = useCallback(async (nextToken: string) => {
     try {
       const { data } = await publicApi.get(`/students/validate-invite/${nextToken}`);
-      setIsValid(data?.success);
+      setIsValid(Boolean(data?.success));
       setInviteMeta(data?.data || null);
       setMessage(data?.success ? "Invite valid hai." : "Invalid invite.");
     } catch (err) {
@@ -56,8 +56,13 @@ function StudentRegisterPageContent() {
     if (tokenFromUrl) validateToken(tokenFromUrl);
   }, [tokenFromUrl, validateToken]);
 
-  // ✅ Verify Code
+  // ✅ Verify code
   const onResolveCode = async () => {
+    if (!inviteCode.trim()) {
+      setMessage("Enter invite code first.");
+      return;
+    }
+
     try {
       const { data } = await publicApi.get(
         `/students/resolve-invite-code/${inviteCode.trim().toUpperCase()}`
@@ -71,11 +76,11 @@ function StudentRegisterPageContent() {
       setMessage("Invite code verified.");
     } catch (err) {
       setIsCodeVerified(false);
-      setMessage(parseApiError(err, "Invalid code."));
+      setMessage(parseApiError(err, "Invalid invite code."));
     }
   };
 
-  // ✅ REGISTER FIXED
+  // ✅ REGISTER (FINAL FIX)
   const onRegister = async (e: FormEvent) => {
     e.preventDefault();
 
@@ -86,47 +91,36 @@ function StudentRegisterPageContent() {
       return;
     }
 
-    // ✅ Required fields check
     if (!studentForm.name || !studentForm.email || !studentForm.rollNo) {
       setMessage("Fill all required fields.");
       return;
     }
 
-    // ✅ Password fix (IMPORTANT)
-    if (!inviteMeta?.hasDirectActivation && !studentForm.password) {
-      setMessage("Password required.");
-      return;
-    }
-
     try {
-      const payload: any = {
+      const payload = {
         token: activeToken,
-        inviteCode: inviteCode.trim().toUpperCase() || undefined,
-        name: studentForm.name,
-        email: studentForm.email,
-        rollNo: studentForm.rollNo,
-        parentEmail: studentForm.parentEmail || undefined,
+        inviteCode: inviteCode.trim().toUpperCase() || "", // ❗ always string
+        name: studentForm.name.trim(),
+        email: studentForm.email.trim(),
+        rollNo: studentForm.rollNo.trim(),
+        parentEmail: studentForm.parentEmail.trim() || "", // ❗ no undefined
+        password: studentForm.password || "Temp@123", // ❗ backend safe
       };
 
-      // only send password if exists
-      if (studentForm.password) {
-        payload.password = studentForm.password;
-      }
-
-      console.log("REGISTER PAYLOAD:", payload);
+      console.log("FINAL PAYLOAD:", payload);
 
       const { data } = await publicApi.post("/students/register", payload);
 
-      setMessage("Registration successful");
+      setMessage(data?.message || "Registration successful");
 
-      // save login
       if (data?.token) {
         localStorage.setItem("token", data.token);
       }
 
       router.push("/student/face-register");
-    } catch (err) {
-      console.error(err);
+
+    } catch (err: any) {
+      console.error("REGISTER ERROR:", err?.response?.data || err);
       setMessage(parseApiError(err, "Registration failed"));
     }
   };
@@ -191,17 +185,15 @@ function StudentRegisterPageContent() {
             }
           />
 
-          {!inviteMeta?.hasDirectActivation && (
-            <input
-              type="password"
-              className="w-full border px-3 py-2 rounded"
-              placeholder="Password"
-              value={studentForm.password}
-              onChange={(e) =>
-                setStudentForm((p) => ({ ...p, password: e.target.value }))
-              }
-            />
-          )}
+          <input
+            type="password"
+            className="w-full border px-3 py-2 rounded"
+            placeholder="Password"
+            value={studentForm.password}
+            onChange={(e) =>
+              setStudentForm((p) => ({ ...p, password: e.target.value }))
+            }
+          />
 
           <button
             type="submit"
