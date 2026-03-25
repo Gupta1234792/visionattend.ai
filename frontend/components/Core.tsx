@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Camera,
   MapPin,
@@ -30,53 +32,64 @@ const coreFeatures = [
 
 export default function Core() {
   return (
-    <section className="bg-white py-32">
-      <div className="max-w-6xl mx-auto px-6">
+    <section className="bg-white py-20 sm:py-24 md:py-32">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+
         {/* Heading */}
-        <div className="mb-24">
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-wide text-gray-800 uppercase">
+        <div className="mb-16 sm:mb-20 md:mb-24">
+          <h2 className="text-2xl sm:text-3xl md:text-5xl font-extrabold tracking-wide text-gray-800 uppercase">
             Core Features
           </h2>
-          <p className="mt-6 text-lg text-gray-500 max-w-2xl">
+
+          <p className="mt-4 sm:mt-6 text-sm sm:text-base md:text-lg text-gray-500 max-w-2xl">
             Built as a deeply integrated system, not a collection of isolated modules.
           </p>
         </div>
 
         {/* Feature List */}
-        <div className="space-y-20">
+        <div className="space-y-12 sm:space-y-16 md:space-y-20">
           {coreFeatures.map((item, index) => {
             const Icon = item.icon;
+
             return (
               <div
                 key={index}
-                className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start"
+                className="grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8 items-start"
               >
-                {/* Left Side */}
-                <div className="md:col-span-3 flex items-center gap-6">
-                  <span className="text-5xl font-bold text-gray-200">
+                {/* Left */}
+                <div className="md:col-span-3 flex items-center gap-4 sm:gap-6">
+                  
+                  <span className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-200">
                     {`0${index + 1}`}
                   </span>
-                  <div className="w-12 h-12 bg-gray-700 text-white rounded-xl flex items-center justify-center">
-                    <Icon size={22} />
+
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-700 text-white rounded-lg sm:rounded-xl flex items-center justify-center">
+                    <Icon size={18} className="sm:hidden" />
+                    <Icon size={22} className="hidden sm:block" />
                   </div>
+
                 </div>
 
-                {/* Right Side */}
+                {/* Right */}
                 <div className="md:col-span-9">
-                  <h3 className="text-2xl font-semibold text-gray-800">
+                  
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-800">
                     {item.title}
                   </h3>
-                  <p className="mt-4 text-gray-500 leading-relaxed max-w-3xl">
+
+                  <p className="mt-3 sm:mt-4 text-sm sm:text-base text-gray-500 leading-relaxed max-w-3xl">
                     {item.desc}
                   </p>
 
                   {/* Divider */}
-                  <div className="mt-10 h-px bg-gray-200 w-full" />
+                  <div className="mt-6 sm:mt-8 md:mt-10 h-px bg-gray-200 w-full" />
+
                 </div>
               </div>
             );
           })}
         </div>
+
       </div>
     </section>
   );
