@@ -31,6 +31,11 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState("Loading chat contacts...");
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [mentionRole, setMentionRole] = useState<string>("");
+  const [mentionUsers, setMentionUsers] = useState<ChatUser[]>([]);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [broadcastTargets, setBroadcastTargets] = useState<string[]>([]);
   const listEndRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
@@ -117,40 +122,87 @@ export default function ChatPage() {
     });
 
     socket.on("direct-message-read", (payload: { messageId: string }) => {
-      setMessages((current) =>
-        current.map((item) =>
-          item._id === payload.messageId ? { ...item, seen: true } : item,
-        ),
-      );
-    });
+    setMessages((current) =>
+      current.map((item) =>
+        item._id === payload.messageId ? { ...item, seen: true } : item,
+      ),
+    );
+  });
 
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-  }, [token, user?.college, selectedUserId]);
+  return () => {
+    socket.disconnect();
+    socketRef.current = null;
+  };
+}, [token, user?.college, selectedUserId]);
 
   const onSend = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedUserId || !draft.trim()) return;
+    if (!draft.trim()) return;
 
     try {
-      const res = await sendMessage({
-        receiverId: selectedUserId,
-        message: draft.trim(),
-      });
-
-      if (!res.success) {
-        pushToast(res.message || "Failed to send message.", "error");
-        return;
+      const payloadMessage = draft.trim();
+      if (broadcastTargets.length) {
+        await Promise.all(
+          broadcastTargets.map((targetId) =>
+            sendMessage({ receiverId: targetId, message: payloadMessage }),
+          ),
+        );
+        pushToast("Message sent to selected role.", "success");
+        setBroadcastTargets([]);
+      } else {
+        if (!selectedUserId) return;
+        const res = await sendMessage({
+          receiverId: selectedUserId,
+          message: payloadMessage,
+        });
+        if (!res.success) {
+          pushToast(res.message || "Failed to send message.", "error");
+          return;
+        }
       }
 
       setDraft("");
       pushToast("Message sent.", "success");
-      await loadConversation(selectedUserId);
+      if (selectedUserId) {
+        await loadConversation(selectedUserId);
+      }
     } catch {
       pushToast("Failed to send message.", "error");
     }
+  };
+
+  const onDraftChange = async (value: string) => {
+    setDraft(value);
+    const trimmed = value.trimEnd();
+    const atTriggered = trimmed.endsWith("@");
+    setShowRoleDropdown(atTriggered);
+    if (!atTriggered) {
+      setShowUserDropdown(false);
+    }
+  };
+
+  const onSelectRoleMention = async (role: string) => {
+    setMentionRole(role);
+    setShowRoleDropdown(false);
+    setShowUserDropdown(true);
+    try {
+      const res = await getChatContacts(role);
+      setMentionUsers(res.users || []);
+    } catch {
+      setMentionUsers([]);
+    }
+  };
+
+  const onSelectUserMention = (userId: string) => {
+    setBroadcastTargets([]);
+    setShowUserDropdown(false);
+    setDraft((text) => text.replace(/@$/, "").trimEnd());
+    if (userId === "__all__") {
+      setBroadcastTargets(mentionUsers.map((u) => u._id));
+      pushToast("Sending to all in role.", "info");
+      return;
+    }
+    setSelectedUserId(userId);
   };
 
   return (
@@ -216,7 +268,7 @@ export default function ChatPage() {
                   <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
                     {contact.role}
                     {contact.year && contact.division
-                      ? ` â€¢ ${contact.year}-${contact.division}`
+                      ? ` · ${contact.year}-${contact.division}`
                       : ""}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">{contact.email}</p>
@@ -276,28 +328,59 @@ export default function ChatPage() {
 
             <form
               onSubmit={onSend}
-              className="rounded-b-[1.8rem] border-t border-white/70 bg-[#f0f2f5] p-4"
+              className="relative rounded-b-[1.8rem] border-t border-white/70 bg-[#f0f2f5] p-4"
             >
               <div className="flex gap-3">
                 <input
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  disabled={!selectedUserId}
-                  placeholder={
-                    selectedUserId
-                      ? "Type your message..."
-                      : "Select a contact first..."
-                  }
-                  className="w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm outline-none disabled:bg-slate-100"
+                  onChange={(e) => void onDraftChange(e.target.value)}
+                  placeholder="Type your message... (@ to mention role)"
+                  className="w-full rounded-full border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
                 />
                 <button
                   type="submit"
-                  disabled={!selectedUserId || !draft.trim()}
+                  disabled={!draft.trim()}
                   className="rounded-full bg-[#25d366] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Send
                 </button>
               </div>
+              {showRoleDropdown ? (
+                <div className="absolute bottom-16 left-4 z-20 w-56 rounded-xl border border-slate-200 bg-white shadow-lg">
+                  {["admin", "teacher", "coordinator", "hod", "student"].map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      className="flex w-full items-center justify-between px-4 py-2 text-sm hover:bg-slate-50"
+                      onClick={() => void onSelectRoleMention(role)}
+                    >
+                      <span className="capitalize">{role}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {showUserDropdown ? (
+                <div className="absolute bottom-16 left-4 z-20 w-72 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    onClick={() => onSelectUserMention("__all__")}
+                  >
+                    Send to all {mentionRole || "selected role"}
+                  </button>
+                  {mentionUsers.map((u) => (
+                    <button
+                      key={u._id}
+                      type="button"
+                      className="flex w-full flex-col items-start px-4 py-2 text-sm hover:bg-slate-50"
+                      onClick={() => onSelectUserMention(u._id)}
+                    >
+                      <span className="font-semibold text-slate-900">{u.name}</span>
+                      <span className="text-xs text-slate-500">{u.email}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <p className="mt-2 text-xs text-slate-500">{message}</p>
             </form>
           </section>
@@ -306,3 +389,4 @@ export default function ChatPage() {
     </ProtectedRoute>
   );
 }
+

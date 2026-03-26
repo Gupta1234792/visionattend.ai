@@ -30,8 +30,6 @@ export default function TeacherInvitePage() {
   const [studentName, setStudentName] = useState("");
   const [studentEmail, setStudentEmail] = useState("");
   const [rollNo, setRollNo] = useState("");
-  const [password, setPassword] = useState("");
-  const [inviteResult, setInviteResult] = useState<{ inviteLink: string; inviteCode: string } | null>(null);
   const [invites, setInvites] = useState<InviteRow[]>([]);
 
   const parseApiError = (error: unknown, fallback: string) => {
@@ -70,15 +68,10 @@ export default function TeacherInvitePage() {
         division,
         studentName,
         studentEmail,
-        rollNo,
-        password
+        rollNo
       });
 
-      setInviteResult({
-        inviteLink: res.data?.inviteLink || "",
-        inviteCode: res.data?.inviteCode || res.data?.invite?.inviteCode || ""
-      });
-      setMessage(res.data?.emailSent ? "Smart invite sent successfully." : "Invite generated/reused successfully.");
+      setMessage(res.data?.message || "Student created and credentials emailed.");
       void loadInvites();
     } catch (error) {
       setMessage(parseApiError(error, "Failed to generate invite."));
@@ -124,7 +117,7 @@ export default function TeacherInvitePage() {
         <div className="grid gap-4 xl:grid-cols-2">
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">Create Invite</h2>
-            <p className="mt-2 text-sm text-slate-600">Reusable long-term link + code for one classroom batch.</p>
+            <p className="mt-2 text-sm text-slate-600">Add student details and credentials will be emailed automatically.</p>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={year} onChange={(e) => setYear(e.target.value as YearValue)}>
@@ -140,7 +133,7 @@ export default function TeacherInvitePage() {
               <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Student email" value={studentEmail} onChange={(e) => setStudentEmail(e.target.value)} />
               <div className="grid grid-cols-2 gap-2">
                 <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Roll no" value={rollNo} onChange={(e) => setRollNo(e.target.value)} />
-                <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Temporary password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Password auto-generated" value="Auto" disabled />
               </div>
             </div>
 
@@ -148,51 +141,28 @@ export default function TeacherInvitePage() {
               Generate Invite
             </button>
 
-            {inviteResult ? (
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-                <p className="font-medium text-slate-800">Invite Code: {inviteResult.inviteCode || "N/A"}</p>
-                <p className="mt-1 break-all text-slate-700">{inviteResult.inviteLink}</p>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void copyText(inviteResult.inviteCode || "", "Code")}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                  >
-                    Copy Code
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copyText(inviteResult.inviteLink || "", "Link")}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                  >
-                    Copy Link
-                  </button>
-                </div>
-              </div>
-            ) : null}
+            <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              Credentials are emailed automatically; no links or codes are needed.
+            </p>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h2 className="text-base font-semibold">Invite History</h2>
-            <p className="mt-2 text-sm text-slate-600">Revoke/regenerate/copy old invites without changing flow.</p>
+            <p className="mt-2 text-sm text-slate-600">Recent auto-generated credentials.</p>
             <div className="mt-3 max-h-[460px] space-y-2 overflow-auto">
               {invites.map((invite) => (
                 <article key={invite._id} className="rounded-lg border border-slate-200 p-3 text-sm">
                   <p className="font-semibold text-slate-800">
                     {invite.department?.code || "-"} {invite.year}-{invite.division}
                   </p>
-                  <p className="text-xs text-slate-500">Code: {invite.inviteCode || "-"}</p>
-                  <p className="text-xs text-slate-500">Expires: {new Date(invite.expiresAt).toLocaleString()}</p>
+                  <p className="text-xs text-slate-500">Email: {invite.studentEmail || "-"}</p>
+                  <p className="text-xs text-slate-500">Created: {new Date(invite.createdAt).toLocaleString()}</p>
                   <p className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${invite.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
-                    {invite.isActive ? "Active" : "Disabled"}
+                    {invite.isActive ? "Active" : "Sent"}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => void copyText(invite.inviteCode || "", "Code")} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">Copy Code</button>
-                    <button type="button" onClick={() => void copyText(`${window.location.origin}/student/register?token=${invite.token}`, "Link")} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">Copy Link</button>
                     <button type="button" onClick={() => void regenerateInvite(invite._id)} className="rounded-lg border border-slate-300 px-2 py-1 text-xs">Regenerate</button>
-                    {invite.isActive ? (
-                      <button type="button" onClick={() => void disableInvite(invite._id)} className="rounded-lg border border-rose-300 px-2 py-1 text-xs text-rose-700">Disable</button>
-                    ) : null}
+                    <button type="button" onClick={() => void disableInvite(invite._id)} className="rounded-lg border border-rose-300 px-2 py-1 text-xs text-rose-700">Disable</button>
                   </div>
                 </article>
               ))}

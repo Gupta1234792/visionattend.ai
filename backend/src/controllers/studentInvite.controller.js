@@ -3,18 +3,15 @@ const StudentInvite = require("../models/StudentInvite.model");
 const Department = require("../models/Department.model");
 const User = require("../models/User.model");
 const { logAudit } = require("../utils/audit");
-const sendStudentInviteEmail = require("../utils/sendStudentInviteEmail");
-
-const frontendBaseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-
-const generateInviteCode = () => crypto.randomBytes(4).toString("hex").toUpperCase();
+const { hashPassword } = require("../utils/password");
+const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 
 // ================= CREATE STUDENT INVITE =================
 const createStudentInvite = async (req, res) => {
   try {
-    const { departmentId, year, division, studentName, studentEmail, password, rollNo } = req.body;
+    const { departmentId, year, division, studentName, studentEmail, rollNo } = req.body;
 
-    if (!departmentId || !year || !division) {
+    if (!departmentId || !year || !division || !studentEmail || !rollNo) {
       return res.status(400).json({
         success: false,
         message: "All fields are required"
@@ -29,115 +26,70 @@ const createStudentInvite = async (req, res) => {
       });
     }
 
-    // Reuse a still-valid invite for the same class so teachers/coordinators can share one
-    // stable link+code with many students without regenerating each time.
     const normalizedStudentEmail = String(studentEmail || "").trim().toLowerCase();
     const normalizedRollNo = String(rollNo || "").trim();
-    const directInviteRequested = Boolean(normalizedStudentEmail && password && rollNo);
-
-    if (directInviteRequested) {
-      const existingStudentWithRollNo = await User.exists({
-        department: departmentId,
-        year,
-        division,
-        rollNo: normalizedRollNo
-      });
-
-      if (existingStudentWithRollNo) {
-        return res.status(409).json({
-          success: false,
-          message: "Roll number already exists in this class"
-        });
-      }
-    }
-
-    const existingInviteQuery = {
-      college: department.college,
+    const existingStudentWithRollNo = await User.exists({
       department: departmentId,
       year,
       division,
-      createdBy: req.user._id,
-      isActive: true,
-      expiresAt: { $gt: new Date() }
-    };
-    if (directInviteRequested) {
-      existingInviteQuery.studentEmail = normalizedStudentEmail;
-    } else {
-      existingInviteQuery.studentEmail = "";
-    }
-
-    const existingInvite = await StudentInvite.findOne(existingInviteQuery).sort({ createdAt: -1 });
-
-    if (existingInvite) {
-      const inviteLink = `${frontendBaseUrl}/student/register?token=${existingInvite.token}`;
-      return res.status(200).json({
-        success: true,
-        message: "Existing student invite reused",
-        inviteLink,
-        inviteCode: existingInvite.inviteCode,
-        emailSent: false,
-        invite: existingInvite
-      });
-    }
-
-    if (directInviteRequested) {
-      const existingInviteWithRollNo = await StudentInvite.exists({
-        department: departmentId,
-        year,
-        division,
-        rollNo: normalizedRollNo,
-        isActive: true,
-        expiresAt: { $gt: new Date() }
-      });
-
-      if (existingInviteWithRollNo) {
-        return res.status(409).json({
-          success: false,
-          message: "An active smart invite already exists for this roll number"
-        });
-      }
-    }
-
-    const token = crypto.randomBytes(32).toString("hex");
-    let inviteCode = generateInviteCode();
-    let attempts = 0;
-
-    while (attempts < 5) {
-      const exists = await StudentInvite.exists({ inviteCode });
-      if (!exists) break;
-      inviteCode = generateInviteCode();
-      attempts += 1;
-    }
-
-    const validityDays = directInviteRequested ? 2 : Number(process.env.STUDENT_INVITE_VALID_DAYS) || 365;
-    const expiresAt = new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000);
-    const inviteLink = `${frontendBaseUrl}/student/register?token=${token}`;
-
-    const invite = await StudentInvite.create({
-      token,
-      inviteToken: token,
-      inviteCode,
-      college: department.college,
-      department: departmentId,
-      year,
-      division,
-      createdBy: req.user._id,
-      expiresAt,
-      studentName: String(studentName || "").trim(),
-      studentEmail: normalizedStudentEmail,
-      tempPassword: String(password || "").trim(),
-      rollNo: normalizedRollNo,
-      isActivated: false
+      rollNo: normalizedRollNo
     });
 
-    const emailSent = await sendStudentInviteEmail({
-      name: invite.studentName,
-      email: invite.studentEmail,
-      password: invite.tempPassword,
-      inviteLink,
-      inviteCode,
+    if (existingStudentWithRollNo) {
+      return res.status(409).json({
+        success: false,
+        message: "Roll number already exists in this class"
+      });
+    }
+
+    const existingStudent = await User.findOne({ email: normalizedStudentEmail });
+    if (existingStudent) {
+      return res.status(409).json({
+        success: false,
+        message: "Student email already registered"
+      });
+    }
+
+    const tempPassword = crypto.randomBytes(5).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10);
+    const hashedPassword = await hashPassword(tempPassword);
+
+    const student = await User.create({
+      name: String(studentName || "").trim() || "Student",
+      email: normalizedStudentEmail,
+      password: hashedPassword,
+      role: "student",
+      college: department.college,
+      department: departmentId,
       year,
-      division
+      division,
+      rollNo: normalizedRollNo,
+      faceRegisteredAt: null,
+      isActive: true
+    });
+
+    const invite = await StudentInvite.create({
+      token: crypto.randomBytes(32).toString("hex"),
+      inviteToken: "",
+      inviteCode: "",
+      college: department.college,
+      department: departmentId,
+      year,
+      division,
+      createdBy: req.user._id,
+      expiresAt: new Date(),
+      studentName: student.name,
+      studentEmail: student.email,
+      tempPassword,
+      rollNo: normalizedRollNo,
+      isActivated: true,
+      isActive: false
+    });
+
+    const emailSent = await sendCredentialsEmail({
+      name: student.name,
+      email: student.email,
+      password: tempPassword,
+      role: "student"
     });
 
     await logAudit({
@@ -146,24 +98,20 @@ const createStudentInvite = async (req, res) => {
       action: "CREATE",
       entityType: "StudentInvite",
       entityId: invite._id,
-      metadata: { year, division, departmentId: String(departmentId) }
+      metadata: { year, division, departmentId: String(departmentId), studentId: String(student._id) }
     });
 
     return res.status(201).json({
       success: true,
-      message: directInviteRequested
-        ? "Student smart invite generated"
-        : "Student invite link generated",
-      inviteLink,
-      inviteCode,
+      message: "Student created and credentials emailed.",
       emailSent,
-      invite
+      studentId: student._id
     });
   } catch (error) {
     console.error("Create student invite error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to generate invite link"
+      message: "Failed to create student"
     });
   }
 };
