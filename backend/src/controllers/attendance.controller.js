@@ -1,4 +1,5 @@
 const AttendanceSession = require("../models/AttendanceSession.model");
+const { sendPushNotification } = require("./notificationController");
 const AttendanceRecord = require("../models/AttendanceRecord.model");
 const Subject = require("../models/Subject.model");
 const User = require("../models/User.model");
@@ -178,12 +179,17 @@ const startAttendanceSession = async (req, res) => {
       }
     });
 
-    res.status(201).json({
-      success: true,
-      message: `Attendance session started (${ATTENDANCE_LIMIT_MINUTES} min window)`,
-      session
-    });
+  res.status(201).json({
+  success: true,
+  message: `Attendance session started (${ATTENDANCE_LIMIT_MINUTES} min window)`,
+  session
+});
 
+// 🔔 PUSH NOTIFICATION SEND
+await sendPushNotification(
+  "📢 Class Started",
+  "Your class has started, open app to mark attendance"
+);
     triggerWebhookEvent({
       event: "attendance.session.started",
       collegeId: req.user.college,
@@ -439,10 +445,11 @@ const getActiveClassSession = async (req, res) => {
     );
 
     res.json({
-      success: true,
-      session,
-      remainingSeconds
-    });
+  success: true,
+  session,
+  remainingSeconds,
+  serverTime: new Date().toISOString()
+});
   } catch (err) {
     res.status(500).json({
       success: false,
