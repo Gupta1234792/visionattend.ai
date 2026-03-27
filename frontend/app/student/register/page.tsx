@@ -13,6 +13,8 @@ type InviteData = {
   isActivated?: boolean;
 };
 
+type StatusTone = "info" | "success" | "error";
+
 const parseApiError = (error: unknown, fallback: string) =>
   (error as { response?: { data?: { message?: string } } })?.response?.data?.message || fallback;
 
@@ -26,6 +28,7 @@ function StudentRegisterContent() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("Open your invite link or enter invite code.");
+  const [statusTone, setStatusTone] = useState<StatusTone>("info");
   const [inviteMeta, setInviteMeta] = useState<InviteData | null>(null);
   const [studentForm, setStudentForm] = useState({
     name: "",
@@ -38,6 +41,7 @@ function StudentRegisterContent() {
     if (!nextToken) {
       setIsValidInvite(false);
       setInviteMeta(null);
+      setStatusTone("error");
       setMessage("Invite token missing.");
       return false;
     }
@@ -54,11 +58,13 @@ function StudentRegisterContent() {
         name: current.name || invite?.studentName || "",
         email: current.email || invite?.studentEmail || ""
       }));
+      setStatusTone("success");
       setMessage(data?.message || "Invite validated.");
       return Boolean(data?.success);
     } catch (error) {
       setIsValidInvite(false);
       setInviteMeta(null);
+      setStatusTone("error");
       setMessage(parseApiError(error, "Invite validation failed"));
       return false;
     } finally {
@@ -75,6 +81,7 @@ function StudentRegisterContent() {
   const handleResolveCode = async () => {
     const normalizedCode = inviteCode.trim().toUpperCase();
     if (!normalizedCode) {
+      setStatusTone("error");
       setMessage("Enter invite code first.");
       return;
     }
@@ -85,9 +92,11 @@ function StudentRegisterContent() {
       const resolvedToken = String(data?.token || "");
       const valid = await validateToken(resolvedToken);
       if (valid) {
+        setStatusTone("success");
         setMessage("Invite code verified.");
       }
     } catch (error) {
+      setStatusTone("error");
       setMessage(parseApiError(error, "Invalid invite code"));
     } finally {
       setIsVerifying(false);
@@ -110,12 +119,27 @@ function StudentRegisterContent() {
     event.preventDefault();
 
     if (!canSubmit) {
+      setStatusTone("error");
       setMessage("Complete all required fields.");
+      return;
+    }
+
+    if (!studentForm.email.trim().includes("@")) {
+      setStatusTone("error");
+      setMessage("Enter a valid email address.");
+      return;
+    }
+
+    if (studentForm.password.trim().length < 6) {
+      setStatusTone("error");
+      setMessage("Password must be at least 6 characters.");
       return;
     }
 
     try {
       setIsSubmitting(true);
+      setStatusTone("info");
+      setMessage("Creating your account...");
       const payload = {
         token,
         inviteCode: inviteCode.trim().toUpperCase(),
@@ -131,6 +155,7 @@ function StudentRegisterContent() {
       const user = data?.user;
 
       if (!authToken || !user) {
+        setStatusTone("error");
         setMessage("Registration completed but login session could not be started.");
         return;
       }
@@ -138,9 +163,11 @@ function StudentRegisterContent() {
       localStorage.setItem("va_token", authToken);
       localStorage.setItem("token", authToken);
       localStorage.setItem("va_user", JSON.stringify(user));
+      setStatusTone("success");
       setMessage(data?.message || "Registration successful");
       window.location.href = "/student/face-register";
     } catch (error) {
+      setStatusTone("error");
       setMessage(parseApiError(error, "Failed to register student"));
     } finally {
       setIsSubmitting(false);
@@ -233,7 +260,15 @@ function StudentRegisterContent() {
           </button>
         </form>
 
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        <div
+          className={`mt-4 rounded-2xl border px-4 py-3 text-sm transition-all duration-200 ${
+            statusTone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : statusTone === "error"
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+          }`}
+        >
           {message}
         </div>
       </div>

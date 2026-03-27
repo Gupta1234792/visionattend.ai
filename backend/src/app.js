@@ -47,12 +47,36 @@ const PRIVATE_DEV_ORIGIN_PATTERNS = [
   /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?$/,
   /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(?::\d+)?$/
 ];
+const TRUSTED_PRODUCTION_ORIGIN_PATTERNS = [
+  /^https:\/\/visionattendai-brown\.vercel\.app$/,
+  /^https:\/\/visionattend-[a-z0-9-]+\.vercel\.app$/,
+  /^https:\/\/visionattendai-[a-z0-9-]+\.vercel\.app$/,
+  /^https:\/\/[a-z0-9-]+\.vercel\.app$/
+];
 const isAllowedOrigin = (origin) =>
-  FRONTEND_URLS.includes(origin) || PRIVATE_DEV_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
+  FRONTEND_URLS.includes(origin) ||
+  PRIVATE_DEV_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin)) ||
+  TRUSTED_PRODUCTION_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin));
 
-app.use(cors({
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && isAllowedOrigin(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
+const corsOptions = {
   origin(origin, callback) {
-    // Allow all origins for development
     if (!origin || process.env.DEV_MODE === 'true') {
       callback(null, true);
       return;
@@ -66,7 +90,10 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -77,6 +104,7 @@ app.use("/api/hods", hodRoutes);
 app.use("/api/coordinators", coordinatorRoutes);
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/student-invite", inviteRateLimit, studentInviteRoutes);
+app.use("/api/student_invite", inviteRateLimit, studentInviteRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/subjects", subjectRoutes);

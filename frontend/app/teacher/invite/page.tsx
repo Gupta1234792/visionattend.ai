@@ -21,6 +21,7 @@ type InviteRow = {
   department?: { name?: string; code?: string };
   createdAt: string;
 };
+type StatusTone = "info" | "success" | "error";
 
 const years: YearValue[] = ["FY", "SY", "TY", "FINAL"];
 const divisions = ["A", "B", "C"];
@@ -34,6 +35,7 @@ export default function TeacherInvitePage() {
   const [origin, setOrigin] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [statusTone, setStatusTone] = useState<StatusTone>("info");
   const [invites, setInvites] = useState<InviteRow[]>([]);
   const [latestInvite, setLatestInvite] = useState<{
     inviteLink: string;
@@ -83,6 +85,7 @@ export default function TeacherInvitePage() {
         : ((user?.department as { _id?: string } | null | undefined)?._id ?? "");
 
     if (!emailPattern.test(normalizedEmail)) {
+      setStatusTone("error");
       setMessage("Invalid email");
       return;
     }
@@ -90,6 +93,7 @@ export default function TeacherInvitePage() {
     try {
       setLoading(true);
       setMessage("");
+      setStatusTone("info");
       const res = await api.post("/student-invite", {
         email: normalizedEmail,
         departmentId: resolvedDepartmentId || undefined,
@@ -97,6 +101,7 @@ export default function TeacherInvitePage() {
         division
       });
 
+      setStatusTone("success");
       setMessage(res.data?.message || "Student invite generated successfully");
       setLatestInvite({
         inviteLink: res.data?.inviteLink || "",
@@ -106,6 +111,7 @@ export default function TeacherInvitePage() {
       setEmail("");
       await loadInvites();
     } catch (error) {
+      setStatusTone("error");
       setMessage(parseError(error));
     } finally {
       setLoading(false);
@@ -115,7 +121,9 @@ export default function TeacherInvitePage() {
   const resendCredentials = async (id: string) => {
     try {
       setMessage("");
+      setStatusTone("info");
       const res = await api.post(`/student-invite/${id}/regenerate`);
+      setStatusTone("success");
       setMessage(res.data?.message || "Invite regenerated successfully");
       setLatestInvite({
         inviteLink: res.data?.inviteLink || "",
@@ -124,6 +132,7 @@ export default function TeacherInvitePage() {
       });
       await loadInvites();
     } catch (error) {
+      setStatusTone("error");
       setMessage(parseError(error));
     }
   };
@@ -189,7 +198,15 @@ export default function TeacherInvitePage() {
             </button>
 
             {message ? (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div
+                className={`mt-4 rounded-2xl border px-4 py-3 text-sm transition-all duration-200 ${
+                  statusTone === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : statusTone === "error"
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                }`}
+              >
                 {message}
               </div>
             ) : null}
