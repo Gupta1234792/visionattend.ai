@@ -86,6 +86,7 @@ test.describe("Invite to face attendance flow", () => {
       data: {
         image: frames[0],
         frames: frames.slice(0, 3),
+        blinkFrames: frames.slice(0, 6),
       },
     });
     expect([200, 201]).toContain(faceRegisterRes.status());

@@ -83,9 +83,11 @@ const registerStudent = async (req, res) => {
         message: "Invalid or expired invite token"
       });
     }
-    const directInvite = Boolean(invite.studentEmail && invite.tempPassword && invite.rollNo);
 
-    if (!directInvite && (!normalizedCode || !invite.inviteCode || String(invite.inviteCode).toUpperCase() !== normalizedCode)) {
+    if (
+      normalizedCode &&
+      (!invite.inviteCode || String(invite.inviteCode).toUpperCase() !== normalizedCode)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid invite code for this invite link"
@@ -95,12 +97,20 @@ const registerStudent = async (req, res) => {
     const finalName = String(name || invite.studentName || "").trim();
     const finalEmail = String(email || invite.studentEmail || "").trim().toLowerCase();
     const finalPassword = String(password || invite.tempPassword || "").trim();
-    const finalRollNo = String(rollNo || invite.rollNo || "").trim();
+    const finalRollNo = String(rollNo || invite.rollNo || "").trim().toUpperCase();
+    const finalParentEmail = String(parentEmail || "").trim().toLowerCase();
 
     if (!finalName || !finalEmail || !finalPassword || !finalRollNo) {
       return res.status(400).json({
         success: false,
         message: "Student details are incomplete for activation"
+      });
+    }
+
+    if (invite.studentEmail && finalEmail !== String(invite.studentEmail).trim().toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: "Email does not match the invited student"
       });
     }
 
@@ -134,7 +144,7 @@ const registerStudent = async (req, res) => {
       password: hashedPassword,
       role: "student",
       rollNo: finalRollNo,
-      parentEmail: parentEmail || null,
+      parentEmail: finalParentEmail || null,
       college: invite.college,
       department: invite.department,
       year: invite.year,
@@ -144,7 +154,8 @@ const registerStudent = async (req, res) => {
     });
 
     invite.isUsed = true;
-    invite.isActivated = false;
+    invite.isActivated = true;
+    invite.isActive = false;
     invite.studentName = finalName;
     invite.studentEmail = finalEmail;
     invite.rollNo = finalRollNo;

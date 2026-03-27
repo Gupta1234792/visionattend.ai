@@ -10,6 +10,8 @@ type YearValue = "FY" | "SY" | "TY" | "FINAL";
 type InviteRow = {
   _id: string;
   studentEmail?: string;
+  inviteCode?: string;
+  expiresAt?: string;
   year: YearValue;
   division: string;
   department?: { name?: string; code?: string };
@@ -69,7 +71,7 @@ export default function TeacherInvitePage() {
         division
       });
 
-      setMessage(res.data?.message || "Student created and credentials sent to email");
+      setMessage(res.data?.message || "Student invite sent successfully");
       setEmail("");
       await loadInvites();
     } catch (error) {
@@ -83,7 +85,7 @@ export default function TeacherInvitePage() {
     try {
       setMessage("");
       const res = await api.post(`/student-invite/${id}/regenerate`);
-      setMessage(res.data?.message || "Credentials regenerated");
+      setMessage(res.data?.message || "Invite resent successfully");
     } catch (error) {
       setMessage(parseError(error));
     }
@@ -98,10 +100,10 @@ export default function TeacherInvitePage() {
               Student Invite
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-              Create student account by email
+              Send student invite by email
             </h2>
             <p className="mt-2 text-sm text-slate-600">
-              We create the student account, generate the password, and email credentials automatically.
+              The student receives a unique invite link, code, and temporary password by email.
             </p>
 
             <div className="mt-5 grid gap-3">
@@ -161,7 +163,7 @@ export default function TeacherInvitePage() {
               Recent Students
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-              Credential delivery history
+              Invite delivery history
             </h2>
 
             <div className="mt-5 space-y-3">
@@ -180,12 +182,20 @@ export default function TeacherInvitePage() {
                     <p className="mt-2 text-xs text-slate-500">
                       {new Date(invite.createdAt).toLocaleString()}
                     </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Code: <span className="font-semibold text-slate-800">{invite.inviteCode || "-"}</span>
+                    </p>
+                    {invite.expiresAt ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Expires: {new Date(invite.expiresAt).toLocaleString()}
+                      </p>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void resendCredentials(invite._id)}
                       className="mt-3 rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                     >
-                      Resend Credentials
+                      Resend Invite
                     </button>
                   </article>
                 ))
