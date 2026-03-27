@@ -402,14 +402,14 @@ export default function StudentFaceRegisterPage() {
                       </div>
                       <div className="border-t border-black/5 bg-white/50 p-2">
                         {capturedFrames[index] ? (
-                          <div className="relative h-24 w-full overflow-hidden rounded-xl">
-                            <Image src={capturedFrames[index]} alt={step.title} fill unoptimized className="object-cover" />
+                          <div className="relative h-40 w-full overflow-hidden rounded-xl bg-slate-950/5">
+                            <Image src={capturedFrames[index]} alt={step.title} fill unoptimized className="object-contain" />
                             <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white shadow-sm transition duration-200">
                               {"\u2713"}
                             </div>
                           </div>
                         ) : (
-                          <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-current/20 bg-white/60 text-xs font-medium opacity-70">
+                          <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-current/20 bg-white/60 text-xs font-medium opacity-70">
                             Waiting for capture
                           </div>
                         )}

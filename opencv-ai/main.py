@@ -77,17 +77,62 @@ def decode_registration_frames(frames_value, image_value=None):
     return frames
 
 
+def generate_detection_variants(frame):
+    variants = [frame]
+
+    try:
+        height, width = frame.shape[:2]
+        max_dim = max(height, width)
+        if max_dim < 960:
+            scale = 960.0 / max_dim
+            variants.append(
+                cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_CUBIC)
+            )
+
+        crop_w = max(1, int(width * 0.8))
+        crop_h = max(1, int(height * 0.8))
+        crop_x = max(0, (width - crop_w) // 2)
+        crop_y = max(0, (height - crop_h) // 2)
+        center_crop = frame[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+        if center_crop.size:
+            variants.append(center_crop)
+            variants.append(
+                cv2.resize(center_crop, (width, height), interpolation=cv2.INTER_CUBIC)
+            )
+    except Exception:
+        pass
+
+    unique = []
+    seen_shapes = set()
+    for candidate in variants:
+        key = (candidate.shape[0], candidate.shape[1])
+        if key in seen_shapes:
+            continue
+        unique.append(candidate)
+        seen_shapes.add(key)
+    return unique
+
+
 def extract_single_face(frame):
     arcface_model = get_arcface_model()
-    faces = arcface_model.get(frame)
+    multiple_faces_detected = False
 
-    if not faces:
-        return None, "No face detected"
+    for candidate in generate_detection_variants(frame):
+        faces = arcface_model.get(candidate)
 
-    if len(faces) > 1:
+        if not faces:
+            continue
+
+        if len(faces) > 1:
+            multiple_faces_detected = True
+            continue
+
+        return faces[0], None
+
+    if multiple_faces_detected:
         return None, "Multiple faces detected"
 
-    return faces[0], None
+    return None, "No face detected"
 
 
 def cosine_similarity(a, b):
