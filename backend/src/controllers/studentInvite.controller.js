@@ -3,18 +3,46 @@ const StudentInvite = require("../models/StudentInvite.model");
 const Department = require("../models/Department.model");
 const User = require("../models/User.model");
 const { logAudit } = require("../utils/audit");
-const { hashPassword } = require("../utils/password");
 const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 
-// ================= CREATE STUDENT INVITE =================
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
+
+const createGeneratedPassword = () =>
+  crypto.randomBytes(9).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
+
+const createGeneratedName = (email) => {
+  const localPart = email.split("@")[0] || "student";
+  return localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "Student";
+};
+
+const createGeneratedRollNo = (email) => {
+  const localPart = (email.split("@")[0] || "student").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  const suffix = crypto.randomBytes(3).toString("hex").toUpperCase();
+  return `${localPart.slice(0, 6) || "STD"}${suffix}`;
+};
+
 const createStudentInvite = async (req, res) => {
   try {
-    const { departmentId, year, division, studentName, studentEmail, rollNo } = req.body;
+    const email = normalizeEmail(req.body?.email || req.body?.studentEmail);
+    const { departmentId, year, division } = req.body;
 
-    if (!departmentId || !year || !division || !studentEmail || !rollNo) {
+    if (!email || !departmentId || !year || !division) {
       return res.status(400).json({
         success: false,
-        message: "All fields are required"
+        message: "Email, department, year and division are required"
+      });
+    }
+
+    if (!EMAIL_PATTERN.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email"
       });
     }
 
@@ -26,48 +54,30 @@ const createStudentInvite = async (req, res) => {
       });
     }
 
-    const normalizedStudentEmail = String(studentEmail || "").trim().toLowerCase();
-    const normalizedRollNo = String(rollNo || "").trim();
-    const existingStudentWithRollNo = await User.exists({
-      department: departmentId,
-      year,
-      division,
-      rollNo: normalizedRollNo
-    });
-
-    if (existingStudentWithRollNo) {
-      return res.status(409).json({
-        success: false,
-        message: "Roll number already exists in this class"
-      });
-    }
-
-    const existingStudent = await User.findOne({ email: normalizedStudentEmail });
+    const existingStudent = await User.findOne({ email });
     if (existingStudent) {
-      return res.status(409).json({
+      return res.status(400).json({
         success: false,
-        message: "Student email already registered"
+        message: "Student already exists"
       });
     }
 
-    const tempPassword = crypto.randomBytes(5).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10);
-    const hashedPassword = await hashPassword(tempPassword);
-
+    const password = createGeneratedPassword();
     const student = await User.create({
-      name: String(studentName || "").trim() || "Student",
-      email: normalizedStudentEmail,
-      password: hashedPassword,
+      name: createGeneratedName(email),
+      email,
+      password,
       role: "student",
       college: department.college,
       department: departmentId,
       year,
       division,
-      rollNo: normalizedRollNo,
+      rollNo: createGeneratedRollNo(email),
       faceRegisteredAt: null,
       isActive: true
     });
 
-    const invite = await StudentInvite.create({
+    const inviteLog = await StudentInvite.create({
       token: crypto.randomBytes(32).toString("hex"),
       inviteToken: "",
       inviteCode: "",
@@ -76,42 +86,60 @@ const createStudentInvite = async (req, res) => {
       year,
       division,
       createdBy: req.user._id,
-      expiresAt: new Date(),
       studentName: student.name,
-      studentEmail: student.email,
-      tempPassword,
-      rollNo: normalizedRollNo,
+      studentEmail: email,
+      tempPassword: password,
+      rollNo: student.rollNo,
       isActivated: true,
-      isActive: false
+      isUsed: true,
+      isActive: false,
+      expiresAt: new Date()
     });
 
-    const emailSent = await sendCredentialsEmail({
-      name: student.name,
-      email: student.email,
-      password: tempPassword,
-      role: "student"
-    });
+    let emailSent = false;
+    let responseMessage = "Student created and credentials sent to email";
+
+    try {
+      emailSent = await sendCredentialsEmail({
+        name: student.name,
+        email,
+        password,
+        role: "student"
+      });
+
+      if (!emailSent) {
+        responseMessage = "Student created but email could not be sent";
+      }
+    } catch (error) {
+      console.error("Student credentials email error:", error);
+      responseMessage = "Student created but email could not be sent";
+    }
 
     await logAudit({
       actor: req.user,
       module: "invite",
       action: "CREATE",
       entityType: "StudentInvite",
-      entityId: invite._id,
-      metadata: { year, division, departmentId: String(departmentId), studentId: String(student._id) }
+      entityId: inviteLog._id,
+      metadata: {
+        email,
+        year,
+        division,
+        departmentId: String(departmentId),
+        studentId: String(student._id),
+        emailSent
+      }
     });
 
     return res.status(201).json({
       success: true,
-      message: "Student created and credentials emailed.",
-      emailSent,
-      studentId: student._id
+      message: responseMessage
     });
   } catch (error) {
     console.error("Create student invite error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to create student"
+      message: "Server error"
     });
   }
 };
@@ -122,7 +150,6 @@ const listStudentInvites = async (req, res) => {
     if (req.query.departmentId) query.department = req.query.departmentId;
     if (req.query.year) query.year = req.query.year;
     if (req.query.division) query.division = req.query.division;
-    if (typeof req.query.active !== "undefined") query.isActive = String(req.query.active) === "true";
 
     const invites = await StudentInvite.find(query)
       .sort({ createdAt: -1 })
@@ -153,15 +180,6 @@ const disableStudentInvite = async (req, res) => {
     invite.disabledBy = req.user._id;
     await invite.save();
 
-    await logAudit({
-      actor: req.user,
-      module: "invite",
-      action: "DISABLE",
-      entityType: "StudentInvite",
-      entityId: invite._id,
-      metadata: { inviteCode: invite.inviteCode }
-    });
-
     return res.json({ success: true, message: "Invite disabled", invite });
   } catch (error) {
     console.error("disableStudentInvite error:", error);
@@ -180,43 +198,46 @@ const regenerateStudentInvite = async (req, res) => {
       return res.status(404).json({ success: false, message: "Invite not found" });
     }
 
-    const token = crypto.randomBytes(32).toString("hex");
-    let inviteCode = generateInviteCode();
-    let attempts = 0;
-    while (attempts < 5) {
-      const exists = await StudentInvite.exists({ inviteCode });
-      if (!exists) break;
-      inviteCode = generateInviteCode();
-      attempts += 1;
+    const student = await User.findOne({ email: normalizeEmail(invite.studentEmail) });
+    if (!student) {
+      return res.status(404).json({ success: false, message: "Student not found" });
     }
 
-    invite.token = token;
-    invite.inviteCode = inviteCode;
-    invite.isActive = true;
+    const password = createGeneratedPassword();
+    student.password = password;
+    await student.save();
+
+    invite.tempPassword = password;
     invite.disabledAt = null;
     invite.disabledBy = null;
-    invite.expiresAt = new Date(Date.now() + (Number(process.env.STUDENT_INVITE_VALID_DAYS) || 365) * 24 * 60 * 60 * 1000);
     await invite.save();
 
-    await logAudit({
-      actor: req.user,
-      module: "invite",
-      action: "REGENERATE",
-      entityType: "StudentInvite",
-      entityId: invite._id,
-      metadata: { inviteCode }
-    });
+    let emailSent = false;
+    let responseMessage = "Credentials regenerated";
+
+    try {
+      emailSent = await sendCredentialsEmail({
+        name: student.name,
+        email: student.email,
+        password,
+        role: "student"
+      });
+
+      if (!emailSent) {
+        responseMessage = "Credentials regenerated but email could not be sent";
+      }
+    } catch (error) {
+      console.error("Regenerate student credentials email error:", error);
+      responseMessage = "Credentials regenerated but email could not be sent";
+    }
 
     return res.json({
       success: true,
-      message: "Invite regenerated",
-      inviteLink: `${frontendBaseUrl}/student/register?token=${invite.token}`,
-      inviteCode: invite.inviteCode,
-      invite
+      message: responseMessage
     });
   } catch (error) {
     console.error("regenerateStudentInvite error:", error);
-    return res.status(500).json({ success: false, message: "Failed to regenerate invite" });
+    return res.status(500).json({ success: false, message: "Failed to regenerate credentials" });
   }
 };
 

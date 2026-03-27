@@ -1,14 +1,13 @@
 const sendEmail = require("./sendEmail");
 
 const sendCredentialsEmail = async ({ name, email, password, role }) => {
-  const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-  const loginUrl = `${baseUrl.replace(/\/$/, "")}/auth`;
+  const loginUrl = process.env.FRONTEND_LOGIN_URL || "https://visionattendai-brown.vercel.app/login";
   const roleLabel = String(role || "user").toUpperCase();
 
   const html = `
     <h3>Hello ${name},</h3>
     <p>Your <b>${roleLabel}</b> account has been created on <b>VisionAttend</b>.</p>
-    <p><b>Login URL:</b> ${loginUrl}</p>
+    <p><b>Login URL:</b> <a href="${loginUrl}">${loginUrl}</a></p>
     <p><b>Email:</b> ${email}</p>
     <p><b>Password:</b> ${password}</p>
     <p>Please keep your credentials secure and change password after first login.</p>
@@ -18,10 +17,9 @@ const sendCredentialsEmail = async ({ name, email, password, role }) => {
 
   return sendEmail({
     to: email,
-    subject: `VisionAttend - ${roleLabel} Account Created`,
+    subject: "Your VisionAttend Account",
     html
   });
 };
 
 module.exports = sendCredentialsEmail;
-
