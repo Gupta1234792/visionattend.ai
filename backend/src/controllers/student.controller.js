@@ -394,17 +394,10 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    if (validFrames.length !== 3) {
+    if (validFrames.length < 1 && !primaryImage) {
       return res.status(400).json({
         success: false,
-        message: "Exactly 3 registration frames are required"
-      });
-    }
-
-    if (validBlinkFrames.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Blink verification frames are required"
+        message: "At least one registration frame is required"
       });
     }
 
@@ -470,8 +463,7 @@ const registerStudentFace = async (req, res) => {
         year: student.year || "",
         division: student.division || "",
         image: primaryImage,
-        frames: validFrames,
-        blinkFrames: validBlinkFrames
+        frames: validFrames.length ? validFrames : [primaryImage]
       },
       { timeoutMs: 10000 }
     );
@@ -548,8 +540,8 @@ const registerStudentFace = async (req, res) => {
       message: "Face registration completed",
       faceRegistered: true,
       confidence: confidenceValue,
-      frameCount: validFrames.length,
-      blinkVerified: true
+      frameCount: validFrames.length || 1,
+      blinkVerified: false
     });
 
   } catch (error) {

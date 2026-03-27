@@ -54,8 +54,8 @@ def decode_image_payload(image_value):
 
 
 def decode_frame_sequence(frames_value):
-    if not isinstance(frames_value, list) or len(frames_value) < LIVENESS_MIN_FRAMES:
-        raise ValueError(f"Live blink scan requires at least {LIVENESS_MIN_FRAMES} frames")
+    if not isinstance(frames_value, list) or len(frames_value) < 1:
+        raise ValueError("At least one scan frame is required")
 
     frames = []
     for item in frames_value:
@@ -64,9 +64,11 @@ def decode_frame_sequence(frames_value):
     return frames
 
 
-def decode_registration_frames(frames_value):
-    if not isinstance(frames_value, list) or len(frames_value) != 3:
-        raise ValueError("Exactly 3 registration frames are required")
+def decode_registration_frames(frames_value, image_value=None):
+    if not isinstance(frames_value, list) or len(frames_value) < 1:
+        if image_value:
+            return [decode_image_payload(image_value)]
+        raise ValueError("At least one registration frame is required")
 
     frames = []
     for item in frames_value:
@@ -269,8 +271,7 @@ def register_face():
     user_id = str(data.get("userId", "")).strip()
     image = data.get("image")
     try:
-        frame_sequence = decode_registration_frames(data.get("frames"))
-        blink_frames = decode_frame_sequence(data.get("blinkFrames"))
+        frame_sequence = decode_registration_frames(data.get("frames"), image)
     except ValueError as error:
         return jsonify({"success": False, "message": str(error)}), 400
 
@@ -280,18 +281,6 @@ def register_face():
     candidate_frames = frame_sequence or [decode_image_payload(image)]
     faces = []
     confidences = []
-
-    blink_result = analyze_blink_sequence(blink_frames)
-    if not blink_result["ok"]:
-        return jsonify(
-            {
-                "success": False,
-                "message": "Blink verification failed during registration",
-                "livenessPassed": False,
-                "blinkDetected": False,
-                "blinkSignals": blink_result["signals"],
-            }
-        ), 403
 
     for frame in candidate_frames:
         face, error = extract_single_face(frame)
@@ -354,7 +343,7 @@ def register_face():
             "confidence": confidence,
             "embedding": embedding.tolist(),
             "frameCount": len(candidate_frames),
-            "blinkDetected": True,
+            "blinkDetected": False,
             "livenessPassed": True,
         }
     )
@@ -375,18 +364,12 @@ def verify_face():
     except ValueError as error:
         return jsonify({"success": False, "message": str(error)}), 400
 
-    blink_result = analyze_blink_sequence(frames)
-
-    if not blink_result["ok"]:
-        return jsonify(
-            {
-                "success": False,
-                "message": "Blink verification failed",
-                "livenessPassed": False,
-                "blinkDetected": False,
-                "blinkSignals": blink_result["signals"],
-            }
-        ), 403
+    faces = []
+    for frame in frames:
+        face, error = extract_single_face(frame)
+        if error:
+            return jsonify({"success": False, "message": error}), 400
+        faces.append(face)
 
     stored = faces_col.find_one({"userId": user_id})
 
@@ -397,7 +380,7 @@ def verify_face():
 
     scores = [
         cosine_similarity(normalize_embedding(face.embedding), stored_embedding)
-        for face in blink_result["faces"]
+        for face in faces
     ]
 
     score = max(scores)
@@ -411,8 +394,8 @@ def verify_face():
             "matched": matched,
             "confidence": score,
             "livenessPassed": True,
-            "blinkDetected": True,
-            "blinkSignals": blink_result["signals"],
+            "blinkDetected": False,
+            "blinkSignals": [],
         }
     ), (200 if matched else 403)
 

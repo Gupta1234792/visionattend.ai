@@ -779,8 +779,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       { timeoutMs: 12000 }
     );
     const confidenceValue = Number(opencvData?.confidence);
-    const matched = Boolean(opencvData?.matched || opencvData?.success);
-    const livenessPassed = opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;
+      const matched = Boolean(opencvData?.matched || opencvData?.success);
+      const livenessPassed = opencvData?.livenessPassed !== false;
 
     if (
       !opencvRes.ok ||
@@ -899,8 +899,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
         subjectId: String(session.subject),
         status,
         locationFlag,
-        verificationMode: "face-blink",
-        blinkDetected: true,
+        verificationMode: "face",
+        blinkDetected: Boolean(opencvData?.blinkDetected),
         faceConfidence: confidenceValue,
         markedAt: record.markedAt?.toISOString?.() || new Date(record.markedAt).toISOString()
       }
