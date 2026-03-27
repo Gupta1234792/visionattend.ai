@@ -16,14 +16,14 @@ const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv
 const sendPushNotification = async () => false;
 
 const ATTENDANCE_LIMIT_MINUTES = 10;
-const FACE_CONFIDENCE_THRESHOLD = 0.65;
+const FACE_CONFIDENCE_THRESHOLD = 0.3;
 const LOCATION_GREEN_METERS = Number(process.env.LOCATION_GREEN_METERS) || 50;
 const LOCATION_YELLOW_METERS = Number(process.env.LOCATION_YELLOW_METERS) || 150;
 const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
   process.env.DEV_FORCE_GREEN_ON_MANUAL_BYPASS || (process.env.NODE_ENV !== "production" ? "true" : "false")
 ) === "true";
 const ALLOW_STUDENT_MANUAL_BYPASS = String(process.env.ALLOW_STUDENT_MANUAL_BYPASS || "false") === "true";
-const LIVE_SCAN_MIN_FRAMES = 6;
+const LIVE_SCAN_MIN_FRAMES = 1;
 const FACE_SIMILARITY_THRESHOLD = 0.65;
 const ATTENDANCE_SCAN_COOLDOWN_MS = Number(process.env.ATTENDANCE_SCAN_COOLDOWN_MS) || 15000;
 const studentScanCooldowns = new Map();

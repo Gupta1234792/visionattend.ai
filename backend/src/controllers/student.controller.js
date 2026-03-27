@@ -6,7 +6,7 @@ const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { updateFaceCache } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
-const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.7;
+const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.2;
 const DEV_MODE = process.env.DEV_MODE === "true";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -473,9 +473,7 @@ const registerStudentFace = async (req, res) => {
 
     if (
       !registerRes.ok ||
-      !registerData?.success ||
-      !Number.isFinite(confidenceValue) ||
-      confidenceValue < FACE_REGISTRATION_CONFIDENCE
+      !registerData?.success
     ) {
       let failureMessage = registerData?.message || "Face registration failed";
       let existingUserName = null;
