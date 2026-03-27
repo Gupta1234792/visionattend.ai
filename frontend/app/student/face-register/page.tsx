@@ -11,20 +11,15 @@ import { getConfidenceUi, isMobileUnsafeCameraContext, mapFaceErrorMessage } fro
 
 const CAPTURE_STEPS = [
   { id: "front", title: "Look Straight", hint: "Keep your face centered and eyes open." },
-  { id: "left", title: "Turn Left", hint: "Turn slightly left and keep your full face visible." },
-  { id: "right", title: "Turn Right", hint: "Turn slightly right and hold steady." },
 ] as const;
-
-const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 export default function StudentFaceRegisterPage() {
   const router = useRouter();
-  const [message, setMessage] = useState("Open the camera and capture front, left, and right frames.");
-  const [statusTag, setStatusTag] = useState<"idle" | "camera" | "capture" | "blink" | "verifying" | "retry" | "success">("idle");
+  const [message, setMessage] = useState("Open the camera and capture one clear front face frame.");
+  const [statusTag, setStatusTag] = useState<"idle" | "camera" | "capture" | "verifying" | "retry" | "success">("idle");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [capturedFrames, setCapturedFrames] = useState<string[]>(["", "", ""]);
-  const [blinkFrames, setBlinkFrames] = useState<string[]>([]);
+  const [capturedFrames, setCapturedFrames] = useState<string[]>([""]);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [isCameraLaunching, setIsCameraLaunching] = useState(false);
@@ -47,8 +42,8 @@ export default function StudentFaceRegisterPage() {
   const capturedCount = capturedFrames.filter(Boolean).length;
   const confidenceUi = useMemo(() => getConfidenceUi(lastConfidence), [lastConfidence]);
   const progressPercent = useMemo(
-    () => Math.round(((capturedCount + (blinkFrames.length >= 6 ? 1 : 0)) / 4) * 100),
-    [blinkFrames.length, capturedCount],
+    () => Math.round((capturedCount / CAPTURE_STEPS.length) * 100),
+    [capturedCount],
   );
 
   useEffect(() => {
@@ -108,7 +103,7 @@ export default function StudentFaceRegisterPage() {
       return;
     }
     setStatusTag("capture");
-    setMessage("Camera ready. Capture exactly 3 frames: front, left, and right.");
+    setMessage("Camera ready. Capture your front face.");
     pushToast("Camera opened successfully.", "success");
     setIsCameraLaunching(false);
   }, [cameraOpen, isCameraLaunching, openCameraStream, pushToast]);
@@ -137,38 +132,9 @@ export default function StudentFaceRegisterPage() {
       next[activeStepIndex] = frame;
       return next;
     });
-
-    if (activeStepIndex < CAPTURE_STEPS.length - 1) {
-      setActiveStepIndex((current) => current + 1);
-      setStatusTag("capture");
-      setMessage(`${activeStep.title} captured. Continue to the next angle.`);
-    } else {
-      setStatusTag("blink");
-      setMessage("All 3 angles captured. Please blink once for liveness verification.");
-    }
+    setStatusTag("success");
+    setMessage("Front face captured. You can now complete registration.");
   }, [activeStep.title, activeStepIndex, cameraOpen, captureFrame, videoReady]);
-
-  const captureBlinkSequence = useCallback(async () => {
-    if (!cameraOpen || !videoReady) {
-      throw new Error("Open the live camera before blink verification.");
-    }
-
-    setStatusTag("blink");
-    setMessage("Please blink your eyes now. Capturing liveness frames...");
-
-    const frames: string[] = [];
-    for (let index = 0; index < 6; index += 1) {
-      const frame = captureFrame();
-      if (!frame) {
-        throw new Error("Blink capture failed. Keep your face centered and retry.");
-      }
-      frames.push(frame);
-      await wait(180);
-    }
-
-    setBlinkFrames(frames);
-    return frames;
-  }, [cameraOpen, captureFrame, videoReady]);
 
   const submitFace = useCallback(async () => {
     if (isSubmitting) return;
@@ -182,15 +148,14 @@ export default function StudentFaceRegisterPage() {
         return;
       }
 
-      if (capturedFrames.some((frame) => !frame)) {
-        setMessage("Capture front, left, and right frames before submitting.");
+      if (!capturedFrames[0]) {
+        setMessage("Capture your front face before submitting.");
         setStatusTag("retry");
         return;
       }
 
-      const liveBlinkFrames = await captureBlinkSequence();
       setStatusTag("verifying");
-      setMessage("Verifying angles, blink, and duplicate face check...");
+      setMessage("Registering your face...");
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 18000);
@@ -199,8 +164,7 @@ export default function StudentFaceRegisterPage() {
         "/students/face-register",
         {
           image: capturedFrames[0],
-          frames: capturedFrames,
-          blinkFrames: liveBlinkFrames,
+          frames: [capturedFrames[0]],
         },
         { signal: controller.signal },
       );
@@ -232,8 +196,6 @@ export default function StudentFaceRegisterPage() {
             : "Face already registered with another account.",
           "error"
         );
-      } else if (msg.toLowerCase().includes("blink")) {
-        pushToast("Blink verification failed. Please retry with one clear blink.", "error");
       } else if (msg.toLowerCase().includes("timeout")) {
         pushToast("Registration timed out. Please retry.", "error");
       } else if (msg.toLowerCase().includes("opencv") || msg.toLowerCase().includes("service")) {
@@ -244,7 +206,7 @@ export default function StudentFaceRegisterPage() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [cameraOpen, captureBlinkSequence, capturedFrames, closeCamera, isSubmitting, persistLocalFaceRegistered, pushToast, router]);
+  }, [cameraOpen, capturedFrames, closeCamera, isSubmitting, persistLocalFaceRegistered, pushToast, router]);
 
   const continueWithBypass = useCallback(() => {
     if (!allowBypass) return;
@@ -273,7 +235,7 @@ export default function StudentFaceRegisterPage() {
                 {"\u2713"}
               </div>
               <h2 className="mt-6 text-3xl font-semibold text-slate-950">Face Registered Successfully</h2>
-              <p className="mt-3 text-sm text-slate-600">Blink verified, duplicate check passed, and your face embedding is secured.</p>
+              <p className="mt-3 text-sm text-slate-600">Your front-face profile is saved and dashboard access is now enabled.</p>
             </div>
           </div>
         ) : null}
@@ -287,17 +249,17 @@ export default function StudentFaceRegisterPage() {
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-700 shadow-sm backdrop-blur">
               Face Onboarding
             </div>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">Secure face registration for attendance access</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">Capture exactly 3 angles, then blink once. Registration finishes only after face detection, liveness verification, and duplicate-face protection pass.</p>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">Quick face registration for attendance access</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">Capture one clear front-face frame to finish setup and continue to your dashboard.</p>
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.10)] backdrop-blur-xl">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Step {Math.min(activeStepIndex + 1, CAPTURE_STEPS.length)} / {CAPTURE_STEPS.length}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Step 1 / 1</p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950">{activeStep.title}</h2>
-                  <p className="mt-1 text-sm text-slate-600">{activeStep.hint}</p>
+                  <p className="mt-1 text-sm text-slate-600">Capture one clear front-face image to continue.</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Progress</p>
@@ -317,19 +279,18 @@ export default function StudentFaceRegisterPage() {
                   Close Camera
                 </button>
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-60 sm:w-auto" type="button" onClick={captureCurrentStep} disabled={!cameraOpen || isSubmitting}>
-                  Capture {activeStep.title}
+                  Capture Front Face
                 </button>
-                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || capturedFrames.some((frame) => !frame) || isSubmitting}>
-                  {isSubmitting ? "Verifying..." : "Verify Blink & Complete"}
+                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || !capturedFrames[0] || isSubmitting}>
+                  {isSubmitting ? "Registering..." : "Complete Registration"}
                 </button>
                 {allowBypass ? <button className="min-h-[48px] w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50 sm:w-auto" type="button" onClick={continueWithBypass} disabled={isSubmitting}>Manual Access</button> : null}
                 {devMode ? <button className="min-h-[48px] w-full rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700 disabled:opacity-50 sm:w-auto" type="button" onClick={skipFaceRegistration} disabled={isSubmitting}>Skip in Dev</button> : null}
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 sm:w-auto" type="button" onClick={() => {
-                  setCapturedFrames(["", "", ""]);
-                  setBlinkFrames([]);
+                  setCapturedFrames([""]);
                   setActiveStepIndex(0);
                   setStatusTag(cameraOpen ? "capture" : "idle");
-                  setMessage("Capture front, left, and right frames again.");
+                  setMessage("Capture your front face again.");
                 }}>
                   Retry
                 </button>
@@ -360,11 +321,11 @@ export default function StudentFaceRegisterPage() {
                   <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3 rounded-2xl bg-slate-950/60 px-4 py-3 text-white backdrop-blur">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Current Instruction</p>
-                      <p className="mt-1 text-sm font-medium">{statusTag === "blink" || isSubmitting ? "Please blink your eyes once" : activeStep.title}</p>
+                      <p className="mt-1 text-sm font-medium">{isSubmitting ? "Registering face..." : activeStep.title}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Captured</p>
-                      <p className="mt-1 text-lg font-semibold">{capturedCount}/3</p>
+                      <p className="mt-1 text-lg font-semibold">{capturedCount}/1</p>
                     </div>
                   </div>
                 </div>
@@ -383,13 +344,13 @@ export default function StudentFaceRegisterPage() {
                 </div>
               ) : null}
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="mt-5 grid gap-3 md:grid-cols-1">
                 {CAPTURE_STEPS.map((step, index) => {
                   const captured = Boolean(capturedFrames[index]);
                   return (
                     <div key={step.id} className={`overflow-hidden rounded-[1.5rem] border text-sm ${captured ? "border-emerald-200 bg-emerald-50 text-emerald-900" : index === activeStepIndex ? "border-blue-200 bg-blue-50 text-blue-900" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
                       <div className="p-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-70">{index + 1}/3</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-70">{index + 1}/1</p>
                         <p className="mt-2 font-semibold">{step.title}</p>
                         <p className="mt-1 text-xs">{captured ? "Captured successfully" : step.hint}</p>
                       </div>
@@ -418,12 +379,12 @@ export default function StudentFaceRegisterPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Checklist</p>
                 <div className="mt-4 space-y-3">
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-900">1. Exact 3 angle frames</p>
-                    <p className="mt-1 text-sm text-slate-600">Front, left, and right are mandatory. Registration blocks extra or missing frames.</p>
+                    <p className="text-sm font-semibold text-slate-900">1. Front face capture</p>
+                    <p className="mt-1 text-sm text-slate-600">Only one clear front-face image is required for now.</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-900">2. Blink liveness</p>
-                    <p className="mt-1 text-sm text-slate-600">After 3 captures, blink once so the system can reject spoofed or static images.</p>
+                    <p className="text-sm font-semibold text-slate-900">2. Camera stability</p>
+                    <p className="mt-1 text-sm text-slate-600">Keep your face centered, avoid blur, and use decent lighting.</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-sm font-semibold text-slate-900">3. Duplicate lock</p>
@@ -443,11 +404,11 @@ export default function StudentFaceRegisterPage() {
                       ? "bg-emerald-100 text-emerald-700"
                       : statusTag === "retry" || statusTag === "camera"
                         ? "bg-amber-100 text-amber-700"
-                        : statusTag === "blink" || statusTag === "verifying"
+                        : statusTag === "verifying"
                           ? "bg-blue-100 text-blue-700"
                           : "bg-slate-100 text-slate-600"
                   }`}>
-                    {statusTag === "success" ? "Verified" : statusTag === "retry" ? "Retry" : statusTag === "camera" ? "Camera" : statusTag === "blink" ? "Blink Check" : statusTag === "verifying" ? "Verifying" : "Ready"}
+                    {statusTag === "success" ? "Verified" : statusTag === "retry" ? "Retry" : statusTag === "camera" ? "Camera" : statusTag === "verifying" ? "Verifying" : "Ready"}
                   </span>
                 </div>
 
@@ -461,12 +422,12 @@ export default function StudentFaceRegisterPage() {
                     <div className={`h-full rounded-full transition-all duration-300 ${confidenceUi.bar}`} style={{ width: `${confidenceUi.progress}%` }} />
                   </div>
                 </div>
-                {statusTag === "blink" || isSubmitting ? (
+                {isSubmitting ? (
                   <div className="mt-3 flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-lg animate-pulse">
                       {"\u25CE"}
                     </span>
-                    <span>Blink your eyes to verify</span>
+                    <span>Registering your face</span>
                   </div>
                 ) : null}
                 <p className="mt-3 text-xs text-slate-500">Mobile support: open camera from the button, keep browser permission enabled, and stay on HTTPS or localhost for camera access.</p>
