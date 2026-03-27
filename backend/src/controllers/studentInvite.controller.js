@@ -30,12 +30,17 @@ const createGeneratedRollNo = (email) => {
 const createStudentInvite = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email || req.body?.studentEmail);
-    const { departmentId, year, division } = req.body;
+    const requestDepartmentId = req.body?.departmentId;
+    const resolvedDepartmentId =
+      (typeof requestDepartmentId === "string" && requestDepartmentId.trim()) ||
+      (req.user?.department?._id ? String(req.user.department._id) : "") ||
+      (req.user?.department ? String(req.user.department) : "");
+    const { year, division } = req.body;
 
-    if (!email || !departmentId || !year || !division) {
+    if (!email || !resolvedDepartmentId || !year || !division) {
       return res.status(400).json({
         success: false,
-        message: "Email, department, year and division are required"
+        message: "Email, year and division are required"
       });
     }
 
@@ -46,7 +51,7 @@ const createStudentInvite = async (req, res) => {
       });
     }
 
-    const department = await Department.findById(departmentId);
+    const department = await Department.findById(resolvedDepartmentId);
     if (!department) {
       return res.status(404).json({
         success: false,
@@ -69,7 +74,7 @@ const createStudentInvite = async (req, res) => {
       password,
       role: "student",
       college: department.college,
-      department: departmentId,
+      department: resolvedDepartmentId,
       year,
       division,
       rollNo: createGeneratedRollNo(email),
@@ -82,7 +87,7 @@ const createStudentInvite = async (req, res) => {
       inviteToken: "",
       inviteCode: "",
       college: department.college,
-      department: departmentId,
+      department: resolvedDepartmentId,
       year,
       division,
       createdBy: req.user._id,
@@ -125,7 +130,7 @@ const createStudentInvite = async (req, res) => {
         email,
         year,
         division,
-        departmentId: String(departmentId),
+        departmentId: String(resolvedDepartmentId),
         studentId: String(student._id),
         emailSent
       }
