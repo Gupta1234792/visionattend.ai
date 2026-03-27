@@ -382,39 +382,6 @@ export default function StudentFaceRegisterPage() {
                 </div>
               ) : null}
               {cameraOpen ? null : (
-                <div className="relative mt-5 mx-auto w-full max-w-md overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-950 sm:max-w-none">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    onLoadedMetadata={handleReady}
-                    onLoadedData={handleReady}
-                    onCanPlay={handleReady}
-                    className="aspect-[4/5] w-full bg-slate-950 object-cover sm:aspect-[16/10]"
-                  />
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="relative h-[72%] w-[52%] rounded-[2rem] border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.28)]">
-                      <div className="absolute inset-x-6 top-1/2 h-0.5 -translate-y-1/2 bg-emerald-300/80" />
-                      <div className="absolute left-1/2 top-6 h-[70%] w-0.5 -translate-x-1/2 bg-emerald-300/80" />
-                      <div className="absolute inset-0 rounded-[2rem] border-2 border-emerald-300 opacity-60 animate-[pulse_2s_infinite]" />
-                    </div>
-                  </div>
-                  <div className="absolute left-4 top-4 rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur">
-                    {videoReady ? "Live camera ready" : "Starting camera..."}
-                  </div>
-                  <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3 rounded-2xl bg-slate-950/60 px-4 py-3 text-white backdrop-blur">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Current Instruction</p>
-                      <p className="mt-1 text-sm font-medium">{isSubmitting ? "Registering face..." : activeStep.title}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Captured</p>
-                      <p className="mt-1 text-lg font-semibold">{capturedCount}/1</p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
                 <div className="mt-5 mx-auto flex w-full max-w-md items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-100 px-6 py-12 text-center sm:max-w-none">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Camera preview will appear here</p>
