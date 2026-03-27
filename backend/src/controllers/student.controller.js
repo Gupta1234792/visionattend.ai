@@ -8,6 +8,7 @@ const { updateFaceCache } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.7;
 const DEV_MODE = process.env.DEV_MODE === "true";
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ================= VALIDATE STUDENT INVITE =================
 const validateInviteToken = async (req, res) => {
@@ -124,6 +125,27 @@ const registerStudent = async (req, res) => {
       });
     }
 
+    if (!EMAIL_PATTERN.test(finalEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a valid student email"
+      });
+    }
+
+    if (finalParentEmail && !EMAIL_PATTERN.test(finalParentEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a valid parent email"
+      });
+    }
+
+    if (finalPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters"
+      });
+    }
+
     if (invite.studentEmail && finalEmail !== String(invite.studentEmail).trim().toLowerCase()) {
       return res.status(400).json({
         success: false,
@@ -154,43 +176,74 @@ const registerStudent = async (req, res) => {
     }
 
     const hashedPassword = await hashPassword(finalPassword);
+    let student;
+    try {
+      student = await User.create({
+        name: finalName,
+        email: finalEmail,
+        password: hashedPassword,
+        role: "student",
+        rollNo: finalRollNo,
+        parentEmail: finalParentEmail || null,
+        college: invite.college,
+        department: invite.department,
+        year: invite.year,
+        division: invite.division,
+        faceRegisteredAt: null
+      });
+    } catch (createError) {
+      if (createError?.code === 11000) {
+        const duplicateField = Object.keys(createError.keyPattern || {})[0] || "field";
+        const duplicateMessage = duplicateField === "email"
+          ? "Student already registered. Please login."
+          : duplicateField === "rollNo"
+            ? "Roll number already exists in this class"
+            : "Student already exists";
+        return res.status(409).json({
+          success: false,
+          message: duplicateMessage
+        });
+      }
 
-    const student = await User.create({
-      name: finalName,
-      email: finalEmail,
-      password: hashedPassword,
-      role: "student",
-      rollNo: finalRollNo,
-      parentEmail: finalParentEmail || null,
-      college: invite.college,
-      department: invite.department,
-      year: invite.year,
-      division: invite.division,
-      // Set initial status to require face registration
-      faceRegisteredAt: null
-    });
+      if (createError?.name === "ValidationError") {
+        const firstMessage = Object.values(createError.errors || {})[0]?.message;
+        return res.status(400).json({
+          success: false,
+          message: firstMessage || "Invalid student details"
+        });
+      }
 
-    invite.isUsed = true;
-    invite.isActivated = true;
-    invite.isActive = false;
-    invite.studentName = finalName;
-    invite.studentEmail = finalEmail;
-    invite.rollNo = finalRollNo;
-    await invite.save();
+      throw createError;
+    }
 
-    const welcomeEmailSent = await sendCredentialsEmail({
-      name: finalName,
-      email: finalEmail,
-      password: finalPassword,
-      role: "student"
-    }).catch((error) => {
-      console.error("Student welcome email error:", error);
-      return false;
-    });
+    await StudentInvite.updateOne(
+      { _id: invite._id },
+      {
+        $set: {
+          isUsed: true,
+          isActivated: true,
+          isActive: false,
+          studentName: finalName,
+          studentEmail: finalEmail,
+          rollNo: finalRollNo
+        }
+      }
+    );
 
     const authToken = generateToken({
       userId: student._id,
       role: student.role
+    });
+
+    setImmediate(() => {
+      sendCredentialsEmail({
+        name: finalName,
+        email: finalEmail,
+        password: finalPassword,
+        role: "student"
+      }).catch((error) => {
+        console.error("Student welcome email error:", error);
+      });
     });
 
     return res.status(201).json({
@@ -217,8 +270,7 @@ const registerStudent = async (req, res) => {
         division: student.division || null,
         faceRegistered: false
       },
-      nextStep: "/student/face-register",
-      welcomeEmailSent
+      nextStep: "/student/face-register"
     });
   } catch (error) {
     console.error("Student registration error:", error);
