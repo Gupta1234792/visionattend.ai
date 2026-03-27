@@ -15,8 +15,6 @@ const CAPTURE_STEPS = [
   { id: "right", title: "Turn Right", hint: "Turn slightly right and hold steady." },
 ] as const;
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export default function StudentFaceRegisterPage() {
   const router = useRouter();
   const [message, setMessage] = useState("Open the camera and capture front, left, and right frames.");
@@ -27,7 +25,6 @@ export default function StudentFaceRegisterPage() {
   const [blinkFrames, setBlinkFrames] = useState<string[]>([]);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
-  const [countdownValue, setCountdownValue] = useState<number | null>(null);
   const [isCameraLaunching, setIsCameraLaunching] = useState(false);
   const [lastConfidence, setLastConfidence] = useState<number | null>(null);
   const [lowLightWarning, setLowLightWarning] = useState("");
@@ -98,12 +95,8 @@ export default function StudentFaceRegisterPage() {
   const openCamera = useCallback(async () => {
     if (cameraOpen || isCameraLaunching) return;
     setIsCameraLaunching(true);
-    setCountdownValue(3);
-    for (const tick of [3, 2, 1]) {
-      setCountdownValue(tick);
-      await wait(650);
-    }
-    setCountdownValue(null);
+    setStatusTag("camera");
+    setMessage("Opening camera...");
     const result = await openCameraStream();
     if (!result.success) {
       setMessage(result.message);
@@ -122,7 +115,6 @@ export default function StudentFaceRegisterPage() {
     closeCamera();
     setStatusTag("idle");
     setMessage("Camera closed.");
-    setCountdownValue(null);
     setIsCameraLaunching(false);
   }, [closeCamera]);
 
@@ -288,15 +280,6 @@ export default function StudentFaceRegisterPage() {
             Camera may not work properly on non-secure connection.
           </div>
         ) : null}
-        {countdownValue ? (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-[2rem] border border-white/20 bg-white/90 p-10 text-center shadow-[0_35px_90px_rgba(15,23,42,0.28)]">
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">Get Ready for Face Registration</p>
-              <div className="mt-6 text-7xl font-black text-slate-950 transition duration-300 animate-pulse">{countdownValue}</div>
-            </div>
-          </div>
-        ) : null}
-
         <div className="mx-auto w-full max-w-6xl">
           <div className="mb-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-blue-700 shadow-sm backdrop-blur">

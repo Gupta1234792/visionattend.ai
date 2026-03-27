@@ -161,6 +161,28 @@ export function useCameraStream(options?: UseCameraStreamOptions) {
   }, []);
 
   useEffect(() => {
+    const attachStream = async () => {
+      if (!isOpen || !streamRef.current || !videoRef.current) {
+        return;
+      }
+
+      const video = videoRef.current;
+      if (video.srcObject !== streamRef.current) {
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("muted", "true");
+        video.srcObject = streamRef.current;
+      }
+
+      await video.play().catch(() => null);
+    };
+
+    void attachStream();
+  }, [isOpen]);
+
+  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
