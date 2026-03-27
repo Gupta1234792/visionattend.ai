@@ -216,33 +216,34 @@ const registerStudent = async (req, res) => {
       throw createError;
     }
 
-    await StudentInvite.updateOne(
-      { _id: invite._id },
-      {
-        $set: {
-          isUsed: true,
-          isActivated: true,
-          isActive: false,
-          studentName: finalName,
-          studentEmail: finalEmail,
-          rollNo: finalRollNo
-        }
-      }
-    );
-
     const authToken = generateToken({
       userId: student._id,
       role: student.role
     });
 
     setImmediate(() => {
-      sendCredentialsEmail({
-        name: finalName,
-        email: finalEmail,
-        password: finalPassword,
-        role: "student"
-      }).catch((error) => {
-        console.error("Student welcome email error:", error);
+      Promise.allSettled([
+        StudentInvite.updateOne(
+          { _id: invite._id },
+          {
+            $set: {
+              isUsed: true,
+              isActivated: true,
+              isActive: false,
+              studentName: finalName,
+              studentEmail: finalEmail,
+              rollNo: finalRollNo
+            }
+          }
+        ),
+        sendCredentialsEmail({
+          name: finalName,
+          email: finalEmail,
+          password: finalPassword,
+          role: "student"
+        })
+      ]).catch((error) => {
+        console.error("Post-registration async task error:", error);
       });
     });
 
@@ -274,9 +275,23 @@ const registerStudent = async (req, res) => {
     });
   } catch (error) {
     console.error("Student registration error:", error);
+
+    if (error?.code === 11000) {
+      const duplicateField = Object.keys(error.keyPattern || {})[0] || "field";
+      const duplicateMessage = duplicateField === "email"
+        ? "Student already registered. Please login."
+        : duplicateField === "rollNo"
+          ? "Roll number already exists in this class"
+          : "Student already exists";
+      return res.status(409).json({
+        success: false,
+        message: duplicateMessage
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: "Failed to register student"
+      message: error?.message || "Failed to register student"
     });
   }
 };
