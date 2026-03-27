@@ -465,7 +465,7 @@ const registerStudentFace = async (req, res) => {
         image: primaryImage,
         frames: validFrames.length ? validFrames : [primaryImage]
       },
-      { timeoutMs: 10000 }
+      { timeoutMs: 30000 }
     );
 
     const confidenceValue = Number(registerData?.confidence);
@@ -548,7 +548,7 @@ const registerStudentFace = async (req, res) => {
     if (error.name === "AbortError") {
       return res.status(504).json({
         success: false,
-        message: "Face registration timeout"
+        message: "Application failed to respond"
       });
     }
 

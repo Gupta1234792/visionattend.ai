@@ -146,30 +146,16 @@ export function useCameraStream(options?: UseCameraStreamOptions) {
 
     const sourceWidth = video.videoWidth || 640;
     const sourceHeight = video.videoHeight || 480;
-    const cropWidth = Math.floor(sourceWidth * 0.58);
-    const cropHeight = Math.floor(sourceHeight * 0.78);
-    const cropX = Math.max(0, Math.floor((sourceWidth - cropWidth) / 2));
-    const cropY = Math.max(0, Math.floor((sourceHeight - cropHeight) / 2));
 
-    canvas.width = cropWidth;
-    canvas.height = cropHeight;
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       return "";
     }
 
-    ctx.drawImage(
-      video,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    );
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL("image/jpeg", 0.85);
   }, [isOpen]);
 

@@ -180,19 +180,13 @@ export default function StudentFaceRegisterPage() {
       setStatusTag("verifying");
       setMessage("Registering your face...");
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 18000);
-
       const res = await api.post(
         "/students/face-register",
         {
           image: capturedFrames[0],
           frames: [capturedFrames[0]],
-        },
-        { signal: controller.signal },
+        }
       );
-
-      clearTimeout(timeoutId);
 
       if (res.data?.success) {
         setLastConfidence(Number(res.data?.confidence || 0));
