@@ -390,7 +390,7 @@ export default function StudentFaceRegisterPage() {
                     <p className="mt-2 text-sm text-slate-600">Tap <span className="font-semibold">Open Camera</span> and allow permission to continue face registration.</p>
                   </div>
                 </div>
-              ) : null}
+              )}
               <canvas ref={canvasRef} className="hidden" />
               {lowLightWarning ? (
                 <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
