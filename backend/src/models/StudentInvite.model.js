@@ -72,6 +72,24 @@ const studentInviteSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    deliveryStatus: {
+      type: String,
+      enum: ["pending", "sent", "failed"],
+      default: "pending",
+      index: true
+    },
+    deliveryError: {
+      type: String,
+      default: ""
+    },
+    deliveryAttemptedAt: {
+      type: Date,
+      default: null
+    },
+    sentAt: {
+      type: Date,
+      default: null
+    },
 
     expiresAt: {
       type: Date,

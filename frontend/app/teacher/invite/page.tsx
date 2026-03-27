@@ -12,6 +12,8 @@ type InviteRow = {
   studentEmail?: string;
   inviteCode?: string;
   expiresAt?: string;
+  deliveryStatus?: "pending" | "sent" | "failed";
+  deliveryError?: string;
   year: YearValue;
   division: string;
   department?: { name?: string; code?: string };
@@ -86,6 +88,7 @@ export default function TeacherInvitePage() {
       setMessage("");
       const res = await api.post(`/student-invite/${id}/regenerate`);
       setMessage(res.data?.message || "Invite resent successfully");
+      await loadInvites();
     } catch (error) {
       setMessage(parseError(error));
     }
@@ -182,6 +185,22 @@ export default function TeacherInvitePage() {
                     <p className="mt-2 text-xs text-slate-500">
                       {new Date(invite.createdAt).toLocaleString()}
                     </p>
+                    <p className="mt-1 text-xs">
+                      <span
+                        className={`rounded-full px-2 py-1 font-semibold ${
+                          invite.deliveryStatus === "sent"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : invite.deliveryStatus === "failed"
+                              ? "bg-rose-100 text-rose-700"
+                              : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {(invite.deliveryStatus || "pending").toUpperCase()}
+                      </span>
+                    </p>
+                    {invite.deliveryStatus === "failed" && invite.deliveryError ? (
+                      <p className="mt-2 text-xs text-rose-600">{invite.deliveryError}</p>
+                    ) : null}
                     <p className="mt-1 text-xs text-slate-600">
                       Code: <span className="font-semibold text-slate-800">{invite.inviteCode || "-"}</span>
                     </p>
