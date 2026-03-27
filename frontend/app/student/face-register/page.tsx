@@ -13,6 +13,50 @@ const CAPTURE_STEPS = [
   { id: "front", title: "Look Straight", hint: "Keep your face centered and eyes open." },
 ] as const;
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const loadImage = (src: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to load captured image"));
+    image.src = src;
+  });
+
+const buildRegistrationVariants = async (frame: string) => {
+  const image = await loadImage(frame);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+
+  const drawVariant = (sx: number, sy: number, sw: number, sh: number) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return frame;
+    }
+    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.92);
+  };
+
+  const centerCropW = Math.round(width * 0.78);
+  const centerCropH = Math.round(height * 0.82);
+  const centerCropX = Math.max(0, Math.round((width - centerCropW) / 2));
+  const centerCropY = Math.max(0, Math.round((height - centerCropH) / 2));
+
+  const tightCropW = Math.round(width * 0.64);
+  const tightCropH = Math.round(height * 0.72);
+  const tightCropX = Math.max(0, Math.round((width - tightCropW) / 2));
+  const tightCropY = Math.max(0, Math.round(height * 0.1));
+
+  return [
+    frame,
+    drawVariant(centerCropX, centerCropY, centerCropW, centerCropH),
+    drawVariant(tightCropX, tightCropY, tightCropW, tightCropH),
+  ];
+};
+
 export default function StudentFaceRegisterPage() {
   const router = useRouter();
   const [message, setMessage] = useState("Open the camera and capture one clear front face frame.");
@@ -180,11 +224,14 @@ export default function StudentFaceRegisterPage() {
       setStatusTag("verifying");
       setMessage("Registering your face...");
 
+      const registrationFrames = await buildRegistrationVariants(capturedFrames[0]);
+      await wait(120);
+
       const res = await api.post(
         "/students/face-register",
         {
           image: capturedFrames[0],
-          frames: [capturedFrames[0]],
+          frames: registrationFrames,
         }
       );
 

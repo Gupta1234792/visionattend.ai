@@ -500,10 +500,12 @@ const registerStudentFace = async (req, res) => {
     student.faceRegisteredAt = new Date();
     await student.save();
 
-    await StudentInvite.updateMany(
+    StudentInvite.updateMany(
       { studentEmail: String(student.email || "").toLowerCase(), isActive: true },
       { $set: { isActivated: true, isUsed: true } }
-    );
+    ).catch((inviteError) => {
+      console.warn("Student invite activation update error:", inviteError?.message || inviteError);
+    });
 
     /* 🔥 CRITICAL CACHE FIX */
     try {
@@ -554,7 +556,7 @@ const registerStudentFace = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to register face"
+      message: error?.message || "Failed to register face"
     });
   }
 };

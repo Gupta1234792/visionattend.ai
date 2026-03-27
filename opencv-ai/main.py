@@ -15,7 +15,7 @@ app = Flask(__name__)
 CORS(app)
 
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.35"))
-REGISTER_THRESHOLD = float(os.getenv("REGISTER_THRESHOLD", "0.25"))
+REGISTER_THRESHOLD = float(os.getenv("REGISTER_THRESHOLD", "0.1"))
 DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
 LIVENESS_MIN_FRAMES = max(6, int(os.getenv("LIVENESS_MIN_FRAMES", "6")))
 BLINK_MIN_DROP = float(os.getenv("BLINK_MIN_DROP", "0.035"))
