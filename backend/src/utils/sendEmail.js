@@ -1,5 +1,7 @@
 const nodemailer = require("nodemailer");
 
+const EMAIL_TIMEOUT_MS = Math.max(3000, Number(process.env.EMAIL_TIMEOUT_MS || 10000));
+
 const buildTransporter = () => {
   const emailUser = String(process.env.EMAIL_USER || "").trim();
   const emailPass = String(process.env.EMAIL_PASS || "").trim().replace(/\s+/g, "");
@@ -16,6 +18,9 @@ const buildTransporter = () => {
       host: smtpHost,
       port: smtpPort || 587,
       secure: String(process.env.EMAIL_SECURE || "false") === "true",
+      connectionTimeout: EMAIL_TIMEOUT_MS,
+      greetingTimeout: EMAIL_TIMEOUT_MS,
+      socketTimeout: EMAIL_TIMEOUT_MS,
       auth: {
         user: emailUser,
         pass: emailPass
@@ -25,6 +30,9 @@ const buildTransporter = () => {
 
   return nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE,
+    connectionTimeout: EMAIL_TIMEOUT_MS,
+    greetingTimeout: EMAIL_TIMEOUT_MS,
+    socketTimeout: EMAIL_TIMEOUT_MS,
     auth: {
       user: emailUser,
       pass: emailPass
@@ -40,12 +48,17 @@ const sendEmail = async ({ to, subject, html }) => {
       return false;
     }
 
-    await transporter.sendMail({
-      from: `"VisionAttend" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      html
-    });
+    await Promise.race([
+      transporter.sendMail({
+        from: `"VisionAttend" <${process.env.EMAIL_USER}>`,
+        to,
+        subject,
+        html
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Email send timeout")), EMAIL_TIMEOUT_MS);
+      })
+    ]);
 
     console.log("Email sent to:", to);
     return true;
