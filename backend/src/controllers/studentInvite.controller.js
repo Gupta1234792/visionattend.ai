@@ -84,6 +84,33 @@ const sendInviteMail = async ({ invite, password }) => {
   };
 };
 
+const runInviteSideEffects = ({ invite, password, actor, resolvedDepartmentId, email, year, division, action }) => {
+  setImmediate(async () => {
+    const mailResult = await sendInviteMail({
+      invite,
+      password
+    }).catch((error) => {
+      console.error("Student invite email error:", error);
+      return { emailSent: false, inviteLink: buildInviteLink(invite.token) };
+    });
+
+    await logAudit({
+      actor,
+      module: "invite",
+      action,
+      entityType: "StudentInvite",
+      entityId: invite._id,
+      metadata: {
+        email,
+        year,
+        division,
+        departmentId: String(resolvedDepartmentId),
+        emailSent: Boolean(mailResult?.emailSent)
+      }
+    });
+  });
+};
+
 const createStudentInvite = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email || req.body?.studentEmail);
@@ -177,31 +204,21 @@ const createStudentInvite = async (req, res) => {
     invite.disabledBy = null;
     await invite.save();
 
-    const mailResult = await sendInviteMail({
+    const inviteLink = buildInviteLink(invite.token);
+    runInviteSideEffects({
       invite,
-      password: tempPassword
-    });
-
-    await logAudit({
+      password: tempPassword,
       actor: req.user,
-      module: "invite",
-      action: activeInvite ? "UPDATE" : "CREATE",
-      entityType: "StudentInvite",
-      entityId: invite._id,
-      metadata: {
-        email,
-        year,
-        division,
-        departmentId: String(resolvedDepartmentId),
-        emailSent: mailResult.emailSent
-      }
+      resolvedDepartmentId,
+      email,
+      year,
+      division,
+      action: activeInvite ? "UPDATE" : "CREATE"
     });
 
     return res.status(activeInvite ? 200 : 201).json({
       success: true,
-      message: mailResult.emailSent
-        ? "Student invite sent successfully"
-        : "Student invite created but email could not be sent",
+      message: "Student invite generated successfully",
       invite: {
         _id: invite._id,
         token: invite.token,
@@ -216,7 +233,7 @@ const createStudentInvite = async (req, res) => {
         isActivated: invite.isActivated,
         createdAt: invite.createdAt
       },
-      inviteLink: mailResult.inviteLink,
+      inviteLink,
       inviteCode: invite.inviteCode
     });
   } catch (error) {
@@ -290,18 +307,22 @@ const regenerateStudentInvite = async (req, res) => {
       student.isActive = true;
       await student.save();
 
-      const emailSent = await sendCredentialsEmail({
-        name: student.name,
-        email: student.email,
-        password,
-        role: "student"
+      setImmediate(async () => {
+        try {
+          await sendCredentialsEmail({
+            name: student.name,
+            email: student.email,
+            password,
+            role: "student"
+          });
+        } catch (error) {
+          console.error("Student credential resend email error:", error);
+        }
       });
 
       return res.json({
         success: true,
-        message: emailSent
-          ? "Student credentials resent successfully"
-          : "Credentials updated but email could not be sent"
+        message: "Student credentials regenerated successfully"
       });
     }
 
@@ -315,17 +336,22 @@ const regenerateStudentInvite = async (req, res) => {
     invite.disabledBy = null;
     await invite.save();
 
-    const mailResult = await sendInviteMail({
+    const inviteLink = buildInviteLink(invite.token);
+    runInviteSideEffects({
       invite,
-      password: invite.tempPassword
+      password: invite.tempPassword,
+      actor: req.user,
+      resolvedDepartmentId: invite.department,
+      email: invite.studentEmail,
+      year: invite.year,
+      division: invite.division,
+      action: "UPDATE"
     });
 
     return res.json({
       success: true,
-      message: mailResult.emailSent
-        ? "Invite resent successfully"
-        : "Invite updated but email could not be sent",
-      inviteLink: mailResult.inviteLink,
+      message: "Invite regenerated successfully",
+      inviteLink,
       inviteCode: invite.inviteCode
     });
   } catch (error) {
