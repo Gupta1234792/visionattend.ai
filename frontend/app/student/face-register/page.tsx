@@ -15,6 +15,8 @@ const CAPTURE_STEPS = [
   { id: "right", title: "Turn Right", hint: "Turn slightly right and hold steady." },
 ] as const;
 
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 export default function StudentFaceRegisterPage() {
   const router = useRouter();
   const [message, setMessage] = useState("Open the camera and capture front, left, and right frames.");
