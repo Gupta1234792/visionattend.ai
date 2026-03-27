@@ -2,6 +2,7 @@ const User = require("../models/User.model");
 const StudentInvite = require("../models/StudentInvite.model");
 const { hashPassword } = require("../utils/password");
 const { generateToken } = require("../utils/jwt");
+const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { updateFaceCache } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
@@ -177,6 +178,16 @@ const registerStudent = async (req, res) => {
     invite.rollNo = finalRollNo;
     await invite.save();
 
+    const welcomeEmailSent = await sendCredentialsEmail({
+      name: finalName,
+      email: finalEmail,
+      password: finalPassword,
+      role: "student"
+    }).catch((error) => {
+      console.error("Student welcome email error:", error);
+      return false;
+    });
+
     const authToken = generateToken({
       userId: student._id,
       role: student.role
@@ -206,7 +217,8 @@ const registerStudent = async (req, res) => {
         division: student.division || null,
         faceRegistered: false
       },
-      nextStep: "/student/face-register"
+      nextStep: "/student/face-register",
+      welcomeEmailSent
     });
   } catch (error) {
     console.error("Student registration error:", error);

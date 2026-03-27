@@ -11,8 +11,10 @@ type InviteRow = {
   _id: string;
   studentEmail?: string;
   inviteCode?: string;
+  token?: string;
+  tempPassword?: string;
   expiresAt?: string;
-  deliveryStatus?: "pending" | "sent" | "failed";
+  deliveryStatus?: "pending" | "sent" | "failed" | "manual";
   deliveryError?: string;
   year: YearValue;
   division: string;
@@ -29,9 +31,15 @@ export default function TeacherInvitePage() {
   const [email, setEmail] = useState("");
   const [year, setYear] = useState<YearValue>((user?.year as YearValue) || "FY");
   const [division, setDivision] = useState(user?.division || "A");
+  const [origin, setOrigin] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [invites, setInvites] = useState<InviteRow[]>([]);
+  const [latestInvite, setLatestInvite] = useState<{
+    inviteLink: string;
+    inviteCode: string;
+    temporaryPassword: string;
+  } | null>(null);
 
   const parseError = (err: unknown) =>
     (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
@@ -50,6 +58,22 @@ export default function TeacherInvitePage() {
   useEffect(() => {
     void loadInvites();
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
+  const copyText = async (value: string, label: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setMessage(`${label} copied`);
+    } catch {
+      setMessage(`Unable to copy ${label.toLowerCase()}`);
+    }
+  };
 
   const createInvite = async () => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -73,7 +97,12 @@ export default function TeacherInvitePage() {
         division
       });
 
-      setMessage(res.data?.message || "Student invite sent successfully");
+      setMessage(res.data?.message || "Student invite generated successfully");
+      setLatestInvite({
+        inviteLink: res.data?.inviteLink || "",
+        inviteCode: res.data?.inviteCode || "",
+        temporaryPassword: res.data?.temporaryPassword || ""
+      });
       setEmail("");
       await loadInvites();
     } catch (error) {
@@ -87,7 +116,12 @@ export default function TeacherInvitePage() {
     try {
       setMessage("");
       const res = await api.post(`/student-invite/${id}/regenerate`);
-      setMessage(res.data?.message || "Invite resent successfully");
+      setMessage(res.data?.message || "Invite regenerated successfully");
+      setLatestInvite({
+        inviteLink: res.data?.inviteLink || "",
+        inviteCode: res.data?.inviteCode || "",
+        temporaryPassword: res.data?.temporaryPassword || ""
+      });
       await loadInvites();
     } catch (error) {
       setMessage(parseError(error));
@@ -103,10 +137,10 @@ export default function TeacherInvitePage() {
               Student Invite
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-              Send student invite by email
+              Generate student invite
             </h2>
             <p className="mt-2 text-sm text-slate-600">
-              The student receives a unique invite link, code, and temporary password by email.
+              Share the generated invite link, code, and temporary password directly with the student.
             </p>
 
             <div className="mt-5 grid gap-3">
@@ -159,6 +193,53 @@ export default function TeacherInvitePage() {
                 {message}
               </div>
             ) : null}
+
+            {latestInvite ? (
+              <div className="mt-4 rounded-[1.5rem] border border-[#d7e5ff] bg-[#f6f9ff] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#135ed8]">
+                  Share With Student
+                </p>
+                <div className="mt-3 space-y-3 text-sm text-slate-700">
+                  <div>
+                    <p className="text-xs text-slate-500">Invite link</p>
+                    <p className="break-all font-medium text-slate-900">{latestInvite.inviteLink}</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs text-slate-500">Invite code</p>
+                      <p className="font-semibold text-slate-900">{latestInvite.inviteCode}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Temporary password</p>
+                      <p className="font-semibold text-slate-900">{latestInvite.temporaryPassword}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyText(latestInvite.inviteLink, "Invite link")}
+                      className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Copy Link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copyText(latestInvite.inviteCode, "Invite code")}
+                      className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Copy Code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copyText(latestInvite.temporaryPassword, "Temporary password")}
+                      className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Copy Password
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="rounded-[1.75rem] border border-white/70 bg-white/85 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
@@ -166,7 +247,7 @@ export default function TeacherInvitePage() {
               Recent Students
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-              Invite delivery history
+              Invite history
             </h2>
 
             <div className="mt-5 space-y-3">
@@ -185,28 +266,22 @@ export default function TeacherInvitePage() {
                     <p className="mt-2 text-xs text-slate-500">
                       {new Date(invite.createdAt).toLocaleString()}
                     </p>
-                    <p className="mt-1 text-xs">
-                      <span
-                        className={`rounded-full px-2 py-1 font-semibold ${
-                          invite.deliveryStatus === "sent"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : invite.deliveryStatus === "failed"
-                              ? "bg-rose-100 text-rose-700"
-                              : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
-                        {(invite.deliveryStatus || "pending").toUpperCase()}
-                      </span>
-                    </p>
-                    {invite.deliveryStatus === "failed" && invite.deliveryError ? (
-                      <p className="mt-2 text-xs text-rose-600">{invite.deliveryError}</p>
-                    ) : null}
                     <p className="mt-1 text-xs text-slate-600">
                       Code: <span className="font-semibold text-slate-800">{invite.inviteCode || "-"}</span>
                     </p>
+                    {invite.token && origin ? (
+                      <p className="mt-1 break-all text-xs text-slate-500">
+                        Link: {`${origin}/student/register?token=${invite.token}`}
+                      </p>
+                    ) : null}
                     {invite.expiresAt ? (
                       <p className="mt-1 text-xs text-slate-500">
                         Expires: {new Date(invite.expiresAt).toLocaleString()}
+                      </p>
+                    ) : null}
+                    {invite.tempPassword ? (
+                      <p className="mt-1 text-xs text-slate-600">
+                        Temp Password: <span className="font-semibold text-slate-800">{invite.tempPassword}</span>
                       </p>
                     ) : null}
                     <button
@@ -214,7 +289,7 @@ export default function TeacherInvitePage() {
                       onClick={() => void resendCredentials(invite._id)}
                       className="mt-3 rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                     >
-                      Resend Invite
+                      Regenerate Invite
                     </button>
                   </article>
                 ))

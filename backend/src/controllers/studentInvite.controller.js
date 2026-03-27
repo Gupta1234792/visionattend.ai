@@ -3,9 +3,6 @@ const StudentInvite = require("../models/StudentInvite.model");
 const Department = require("../models/Department.model");
 const User = require("../models/User.model");
 const { logAudit } = require("../utils/audit");
-const { hashPassword } = require("../utils/password");
-const sendStudentInviteEmail = require("../utils/sendStudentInviteEmail");
-const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INVITE_VALID_DAYS = Number(process.env.STUDENT_INVITE_VALID_DAYS || 2);
@@ -64,68 +61,6 @@ const buildInviteLink = (token) => {
   const frontendBase = process.env.FRONTEND_URL || process.env.FRONTEND_LOGIN_URL || "http://localhost:3000";
   const normalizedBase = String(frontendBase).replace(/\/auth(?:\?.*)?$/i, "").replace(/\/$/, "");
   return `${normalizedBase}/student/register?token=${token}`;
-};
-
-const sendInviteMail = async ({ invite, password }) => {
-  const inviteLink = buildInviteLink(invite.token);
-  try {
-    const emailSent = await sendStudentInviteEmail({
-      name: invite.studentName,
-      email: invite.studentEmail,
-      password,
-      inviteLink,
-      inviteCode: invite.inviteCode,
-      year: invite.year,
-      division: invite.division
-    });
-
-    return {
-      emailSent,
-      inviteLink,
-      error: emailSent ? "" : "Email provider rejected or did not confirm delivery"
-    };
-  } catch (error) {
-    return {
-      emailSent: false,
-      inviteLink,
-      error: error?.message || "Email send failed"
-    };
-  }
-};
-
-const finalizeInviteDelivery = async ({ invite, password, actor, resolvedDepartmentId, email, year, division, action }) => {
-  const mailResult = await sendInviteMail({
-    invite,
-    password
-  });
-
-  const deliveryStatus = mailResult?.emailSent ? "sent" : "failed";
-  const deliveryError = mailResult?.emailSent ? "" : String(mailResult?.error || "Email send failed");
-
-  invite.deliveryStatus = deliveryStatus;
-  invite.deliveryError = deliveryError;
-  invite.deliveryAttemptedAt = new Date();
-  invite.sentAt = mailResult?.emailSent ? new Date() : null;
-  await invite.save();
-
-  await logAudit({
-    actor,
-    module: "invite",
-    action,
-    entityType: "StudentInvite",
-    entityId: invite._id,
-    metadata: {
-      email,
-      year,
-      division,
-      departmentId: String(resolvedDepartmentId),
-      emailSent: Boolean(mailResult?.emailSent),
-      deliveryStatus,
-      deliveryError
-    }
-  });
-
-  return { mailResult, deliveryStatus, deliveryError };
 };
 
 const createStudentInvite = async (req, res) => {
@@ -219,29 +154,31 @@ const createStudentInvite = async (req, res) => {
     invite.isActive = true;
     invite.disabledAt = null;
     invite.disabledBy = null;
-    invite.deliveryStatus = "pending";
+    invite.deliveryStatus = "manual";
     invite.deliveryError = "";
-    invite.deliveryAttemptedAt = null;
+    invite.deliveryAttemptedAt = new Date();
     invite.sentAt = null;
     await invite.save();
 
     const inviteLink = buildInviteLink(invite.token);
-    const { mailResult, deliveryError } = await finalizeInviteDelivery({
-      invite,
-      password: tempPassword,
+    await logAudit({
       actor: req.user,
-      resolvedDepartmentId,
-      email,
-      year,
-      division,
-      action: activeInvite ? "UPDATE" : "CREATE"
+      module: "invite",
+      action: activeInvite ? "UPDATE" : "CREATE",
+      entityType: "StudentInvite",
+      entityId: invite._id,
+      metadata: {
+        email,
+        year,
+        division,
+        departmentId: String(resolvedDepartmentId),
+        deliveryStatus: "manual"
+      }
     });
 
     return res.status(activeInvite ? 200 : 201).json({
-      success: Boolean(mailResult?.emailSent),
-      message: mailResult?.emailSent
-        ? "Student invite sent successfully"
-        : `Invite created but email failed: ${deliveryError}`,
+      success: true,
+      message: "Student invite generated successfully. Share link and code with the student.",
       invite: {
         _id: invite._id,
         token: invite.token,
@@ -259,7 +196,8 @@ const createStudentInvite = async (req, res) => {
         createdAt: invite.createdAt
       },
       inviteLink,
-      inviteCode: invite.inviteCode
+      inviteCode: invite.inviteCode,
+      temporaryPassword: invite.tempPassword
     });
   } catch (error) {
     console.error("Create student invite error:", error);
@@ -327,26 +265,9 @@ const regenerateStudentInvite = async (req, res) => {
     const student = await User.findOne({ email: normalizeEmail(invite.studentEmail) });
 
     if (student) {
-      const password = createGeneratedPassword();
-      student.password = await hashPassword(password);
-      student.isActive = true;
-      await student.save();
-
-      const emailSent = await sendCredentialsEmail({
-        name: student.name,
-        email: student.email,
-        password,
-        role: "student"
-      }).catch((error) => {
-        console.error("Student credential resend email error:", error);
-        return false;
-      });
-
-      return res.json({
-        success: Boolean(emailSent),
-        message: emailSent
-          ? "Student credentials regenerated successfully"
-          : "Credentials updated but email could not be sent"
+      return res.status(409).json({
+        success: false,
+        message: "Student already registered. Ask the student to log in."
       });
     }
 
@@ -358,33 +279,34 @@ const regenerateStudentInvite = async (req, res) => {
     invite.isActivated = false;
     invite.disabledAt = null;
     invite.disabledBy = null;
-    invite.deliveryStatus = "pending";
+    invite.deliveryStatus = "manual";
     invite.deliveryError = "";
-    invite.deliveryAttemptedAt = null;
+    invite.deliveryAttemptedAt = new Date();
     invite.sentAt = null;
     await invite.save();
 
-    const inviteLink = buildInviteLink(invite.token);
-    const { mailResult, deliveryError } = await finalizeInviteDelivery({
-      invite,
-      password: invite.tempPassword,
+    await logAudit({
       actor: req.user,
-      resolvedDepartmentId: invite.department,
-      email: invite.studentEmail,
-      year: invite.year,
-      division: invite.division,
-      action: "UPDATE"
+      module: "invite",
+      action: "UPDATE",
+      entityType: "StudentInvite",
+      entityId: invite._id,
+      metadata: {
+        email: invite.studentEmail,
+        year: invite.year,
+        division: invite.division,
+        departmentId: String(invite.department),
+        deliveryStatus: "manual"
+      }
     });
+    const inviteLink = buildInviteLink(invite.token);
 
     return res.json({
-      success: Boolean(mailResult?.emailSent),
-      message: mailResult?.emailSent
-        ? "Invite regenerated successfully"
-        : `Invite regenerated but email failed: ${deliveryError}`,
+      success: true,
+      message: "Invite regenerated successfully. Share the new link and code with the student.",
       inviteLink,
       inviteCode: invite.inviteCode,
-      deliveryStatus: invite.deliveryStatus,
-      deliveryError: invite.deliveryError
+      temporaryPassword: invite.tempPassword
     });
   } catch (error) {
     console.error("regenerateStudentInvite error:", error);
