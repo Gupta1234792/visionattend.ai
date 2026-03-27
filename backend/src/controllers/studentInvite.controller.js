@@ -48,8 +48,13 @@ const createUniqueInviteCode = async () => {
 
 const getResolvedDepartmentId = (req) => {
   const requestDepartmentId = req.body?.departmentId;
+  const requestDepartmentObjectId =
+    requestDepartmentId && typeof requestDepartmentId === "object" && requestDepartmentId._id
+      ? String(requestDepartmentId._id)
+      : "";
   return (
     (typeof requestDepartmentId === "string" && requestDepartmentId.trim()) ||
+    requestDepartmentObjectId ||
     (req.user?.department?._id ? String(req.user.department._id) : "") ||
     (req.user?.department ? String(req.user.department) : "")
   );
@@ -83,8 +88,8 @@ const createStudentInvite = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email || req.body?.studentEmail);
     const resolvedDepartmentId = getResolvedDepartmentId(req);
-    const year = String(req.body?.year || "").trim().toUpperCase();
-    const division = String(req.body?.division || "").trim().toUpperCase();
+    const year = String(req.body?.year || req.user?.year || "").trim().toUpperCase();
+    const division = String(req.body?.division || req.user?.division || "").trim().toUpperCase();
     const studentName = String(req.body?.studentName || createGeneratedName(email)).trim();
     const rollNo = String(req.body?.rollNo || createGeneratedRollNo(email)).trim().toUpperCase();
 
@@ -105,7 +110,7 @@ const createStudentInvite = async (req, res) => {
     if (!resolvedDepartmentId) {
       return res.status(400).json({
         success: false,
-        message: "Coordinator department not found"
+        message: "Department mapping missing for this account"
       });
     }
 

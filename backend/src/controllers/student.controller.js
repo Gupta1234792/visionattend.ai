@@ -77,10 +77,26 @@ const registerStudent = async (req, res) => {
 
     const invite = await StudentInvite.findOne({ token: normalizedToken });
 
-    if (!invite || !invite.isActive || invite.expiresAt < new Date()) {
+    if (!invite) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or expired invite token"
+        message: "Invalid invite token"
+      });
+    }
+
+    if (invite.expiresAt < new Date()) {
+      return res.status(410).json({
+        success: false,
+        message: "Invite link expired"
+      });
+    }
+
+    if (!invite.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: invite.isUsed
+          ? "Invite already used. Please login with your student account."
+          : "Invite is inactive"
       });
     }
 

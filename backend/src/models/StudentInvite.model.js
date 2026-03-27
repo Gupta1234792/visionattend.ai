@@ -52,7 +52,8 @@ const studentInviteSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      default: ""
+      default: "",
+      index: true
     },
     tempPassword: {
       type: String,
@@ -98,5 +99,8 @@ const studentInviteSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+studentInviteSchema.index({ studentEmail: 1, department: 1, year: 1, division: 1 });
+studentInviteSchema.index({ expiresAt: 1 });
 
 module.exports = mongoose.model("StudentInvite", studentInviteSchema);

@@ -1,5 +1,4 @@
 const AttendanceSession = require("../models/AttendanceSession.model");
-const { sendPushNotification } = require("./notificationController");
 const AttendanceRecord = require("../models/AttendanceRecord.model");
 const Subject = require("../models/Subject.model");
 const User = require("../models/User.model");
@@ -13,6 +12,8 @@ const { emitToCollegeRoom } = require("../sockets/gateway");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { getFaceEmbedding, refreshCacheIfNeeded, cosineSimilarity } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
+
+const sendPushNotification = async () => false;
 
 const ATTENDANCE_LIMIT_MINUTES = 10;
 const FACE_CONFIDENCE_THRESHOLD = 0.65;
