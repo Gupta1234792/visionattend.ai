@@ -94,24 +94,17 @@ faceRegisteredAt: {
   { timestamps: true }
 );
 
-userSchema.pre("save", async function hashPasswordOnSave(next) {
-  try {
-    if (!this.isModified("password")) {
-      next();
-      return;
-    }
-
-    const currentPassword = String(this.password || "");
-    if (!currentPassword || BCRYPT_HASH_PATTERN.test(currentPassword)) {
-      next();
-      return;
-    }
-
-    this.password = await hashPassword(currentPassword);
-    next();
-  } catch (error) {
-    next(error);
+userSchema.pre("save", async function hashPasswordOnSave() {
+  if (!this.isModified("password")) {
+    return;
   }
+
+  const currentPassword = String(this.password || "");
+  if (!currentPassword || BCRYPT_HASH_PATTERN.test(currentPassword)) {
+    return;
+  }
+
+  this.password = await hashPassword(currentPassword);
 });
 
 module.exports = mongoose.model("User", userSchema);
