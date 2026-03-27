@@ -1,7 +1,7 @@
 const sendEmail = require("./sendEmail");
 
 const sendCredentialsEmail = async ({ name, email, password, role }) => {
-  const loginUrl = process.env.FRONTEND_LOGIN_URL || "https://visionattendai-brown.vercel.app/login";
+  const loginUrl = process.env.FRONTEND_LOGIN_URL || "https://visionattendai-brown.vercel.app/auth?mode=login";
   const roleLabel = String(role || "user").toUpperCase();
 
   const html = `

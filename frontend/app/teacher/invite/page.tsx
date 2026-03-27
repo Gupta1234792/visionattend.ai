@@ -49,22 +49,22 @@ export default function TeacherInvitePage() {
 
   const createInvite = async () => {
     const normalizedEmail = email.trim().toLowerCase();
+    const resolvedDepartmentId =
+      typeof user?.department === "string"
+        ? user.department
+        : ((user?.department as { _id?: string } | null | undefined)?._id ?? "");
 
     if (!emailPattern.test(normalizedEmail)) {
       setMessage("Invalid email");
       return;
     }
 
-    if (!user?.department) {
-      setMessage("Department missing");
-      return;
-    }
-
     try {
       setLoading(true);
+      setMessage("");
       const res = await api.post("/student-invite", {
         email: normalizedEmail,
-        departmentId: user.department,
+        departmentId: resolvedDepartmentId || undefined,
         year,
         division
       });
@@ -81,6 +81,7 @@ export default function TeacherInvitePage() {
 
   const resendCredentials = async (id: string) => {
     try {
+      setMessage("");
       const res = await api.post(`/student-invite/${id}/regenerate`);
       setMessage(res.data?.message || "Credentials regenerated");
     } catch (error) {

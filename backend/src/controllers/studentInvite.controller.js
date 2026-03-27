@@ -27,6 +27,30 @@ const createGeneratedRollNo = (email) => {
   return `${localPart.slice(0, 6) || "STD"}${suffix}`;
 };
 
+const deliverStudentCredentials = async ({ student, password }) => {
+  try {
+    const emailSent = await sendCredentialsEmail({
+      name: student.name,
+      email: student.email,
+      password,
+      role: "student"
+    });
+
+    return {
+      emailSent,
+      message: emailSent
+        ? "Student created and credentials sent to email"
+        : "Student created but email could not be sent"
+    };
+  } catch (error) {
+    console.error("Student credentials email error:", error);
+    return {
+      emailSent: false,
+      message: "Student created but email could not be sent"
+    };
+  }
+};
+
 const createStudentInvite = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email || req.body?.studentEmail);
@@ -35,9 +59,10 @@ const createStudentInvite = async (req, res) => {
       (typeof requestDepartmentId === "string" && requestDepartmentId.trim()) ||
       (req.user?.department?._id ? String(req.user.department._id) : "") ||
       (req.user?.department ? String(req.user.department) : "");
-    const { year, division } = req.body;
+    const year = String(req.body?.year || "").trim().toUpperCase();
+    const division = String(req.body?.division || "").trim().toUpperCase();
 
-    if (!email || !resolvedDepartmentId || !year || !division) {
+    if (!email || !year || !division) {
       return res.status(400).json({
         success: false,
         message: "Email, year and division are required"
@@ -51,6 +76,13 @@ const createStudentInvite = async (req, res) => {
       });
     }
 
+    if (!resolvedDepartmentId) {
+      return res.status(400).json({
+        success: false,
+        message: "Coordinator department not found"
+      });
+    }
+
     const department = await Department.findById(resolvedDepartmentId);
     if (!department) {
       return res.status(404).json({
@@ -61,9 +93,70 @@ const createStudentInvite = async (req, res) => {
 
     const existingStudent = await User.findOne({ email });
     if (existingStudent) {
-      return res.status(400).json({
-        success: false,
-        message: "Student already exists"
+      if (existingStudent.role !== "student") {
+        return res.status(400).json({
+          success: false,
+          message: "Email already exists with another account"
+        });
+      }
+
+      const password = createGeneratedPassword();
+      existingStudent.password = password;
+      existingStudent.department = resolvedDepartmentId;
+      existingStudent.college = department.college;
+      existingStudent.year = year;
+      existingStudent.division = division;
+      existingStudent.isActive = true;
+      if (!existingStudent.rollNo) {
+        existingStudent.rollNo = createGeneratedRollNo(email);
+      }
+      await existingStudent.save();
+
+      const inviteLog = await StudentInvite.create({
+        token: crypto.randomBytes(32).toString("hex"),
+        inviteToken: "",
+        inviteCode: "",
+        college: department.college,
+        department: resolvedDepartmentId,
+        year,
+        division,
+        createdBy: req.user._id,
+        studentName: existingStudent.name,
+        studentEmail: email,
+        tempPassword: password,
+        rollNo: existingStudent.rollNo,
+        isActivated: true,
+        isUsed: true,
+        isActive: false,
+        expiresAt: new Date()
+      });
+
+      const deliveryResult = await deliverStudentCredentials({
+        student: existingStudent,
+        password
+      });
+
+      await logAudit({
+        actor: req.user,
+        module: "invite",
+        action: "UPDATE",
+        entityType: "StudentInvite",
+        entityId: inviteLog._id,
+        metadata: {
+          email,
+          year,
+          division,
+          departmentId: String(resolvedDepartmentId),
+          studentId: String(existingStudent._id),
+          emailSent: deliveryResult.emailSent
+        }
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: deliveryResult.emailSent
+          ? "Credentials resent to student email"
+          : "Student updated but email could not be sent"
       });
     }
 
@@ -101,24 +194,10 @@ const createStudentInvite = async (req, res) => {
       expiresAt: new Date()
     });
 
-    let emailSent = false;
-    let responseMessage = "Student created and credentials sent to email";
-
-    try {
-      emailSent = await sendCredentialsEmail({
-        name: student.name,
-        email,
-        password,
-        role: "student"
-      });
-
-      if (!emailSent) {
-        responseMessage = "Student created but email could not be sent";
-      }
-    } catch (error) {
-      console.error("Student credentials email error:", error);
-      responseMessage = "Student created but email could not be sent";
-    }
+    const deliveryResult = await deliverStudentCredentials({
+      student,
+      password
+    });
 
     await logAudit({
       actor: req.user,
@@ -132,13 +211,13 @@ const createStudentInvite = async (req, res) => {
         division,
         departmentId: String(resolvedDepartmentId),
         studentId: String(student._id),
-        emailSent
+        emailSent: deliveryResult.emailSent
       }
     });
 
     return res.status(201).json({
       success: true,
-      message: responseMessage
+      message: deliveryResult.message
     });
   } catch (error) {
     console.error("Create student invite error:", error);
