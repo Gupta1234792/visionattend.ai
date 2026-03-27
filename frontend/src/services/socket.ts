@@ -13,7 +13,10 @@ export function connectCollegeSocket(token: string, collegeId: string): Socket {
   return io(`${SOCKET_BASE}/college/${collegeId}`, {
     transports: ["websocket", "polling"],
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    randomizationFactor: 0.5,
     timeout: 10000,
     auth: { token: `Bearer ${token}` },
   });

@@ -38,6 +38,7 @@ try:
     ensure_named_index("idx_faces_user", [("userId", 1)])
     ensure_named_index("idx_faces_subject", [("subjectId", 1)])
     ensure_named_index("idx_faces_user_subject", [("userId", 1), ("subjectId", 1)])
+    faces.create_index([("embeddingHash", 1)], name="idx_faces_embedding_hash", unique=True, sparse=True)
     print("OpenCV Mongo indexes ready")
 except Exception as error:
     print(f"OpenCV Mongo index setup failed: {error}")

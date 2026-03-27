@@ -51,6 +51,9 @@ const ensureFaceIndexes = async () => {
     await ensureNamedIndex(faces, "idx_faces_user", { userId: 1 });
     await ensureNamedIndex(faces, "idx_faces_subject", { subjectId: 1 });
     await ensureNamedIndex(faces, "idx_faces_user_subject", { userId: 1, subjectId: 1 });
+    await faces.createIndex({ embeddingHash: 1 }, { name: "idx_faces_embedding_hash", unique: true, sparse: true }).catch((error) => {
+      console.error(`[db] index idx_faces_embedding_hash failed: ${error.message || error}`);
+    });
     console.log("[db] face indexes ready");
   } catch (error) {
     console.error(`[db] face index setup skipped: ${error.message || error}`);

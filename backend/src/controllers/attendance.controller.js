@@ -186,10 +186,12 @@ const startAttendanceSession = async (req, res) => {
     });
 
 // 🔔 PUSH NOTIFICATION SEND
-await sendPushNotification(
+sendPushNotification(
   "📢 Class Started",
   "Your class has started, open app to mark attendance"
-);
+).catch((pushError) => {
+  console.error("Attendance start push notification error:", pushError);
+});
     triggerWebhookEvent({
       event: "attendance.session.started",
       collegeId: req.user.college,
@@ -826,23 +828,46 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       locationFlag = "yellow";
     }
 
-    const record = await AttendanceRecord.create({
-      session: session._id,
-      student: req.user._id,
-      subject: session.subject,
-      batchKey: session.batchKey,
-      date: todayDate,
-      classKey: session.classKey,
-      status,
-      locationFlag,
-      distanceMeters: collegeDistance,
-      gpsDistance: sessionDistance,
-      location: {
-        latitude: Number(latitude),
-        longitude: Number(longitude)
+    const insertResult = await AttendanceRecord.updateOne(
+      {
+        student: req.user._id,
+        classKey: session.classKey
       },
-      faceVerified: true,
-      faceConfidence: confidenceValue
+      {
+        $setOnInsert: {
+          session: session._id,
+          student: req.user._id,
+          subject: session.subject,
+          batchKey: session.batchKey,
+          date: todayDate,
+          classKey: session.classKey,
+          status,
+          locationFlag,
+          distanceMeters: collegeDistance,
+          gpsDistance: sessionDistance,
+          location: {
+            latitude: Number(latitude),
+            longitude: Number(longitude)
+          },
+          faceVerified: true,
+          faceConfidence: confidenceValue
+        }
+      },
+      {
+        upsert: true
+      }
+    );
+
+    if (!insertResult.upsertedCount) {
+      return res.status(409).json({
+        success: false,
+        message: "Attendance already marked today"
+      });
+    }
+
+    const record = await AttendanceRecord.findOne({
+      student: req.user._id,
+      classKey: session.classKey
     });
 
     emitToCollegeRoom(

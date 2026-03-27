@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Socket } from "socket.io-client";
 import api from "@/src/services/api";
 import { ProtectedRoute } from "@/src/components/protected-route";
@@ -103,6 +104,7 @@ const years: YearValue[] = ["FY", "SY", "TY", "FINAL"];
 const divisions = ["A", "B", "C"];
 
 export default function TeacherPage() {
+  const router = useRouter();
   const { user, token } = useAuth();
 
   const [message, setMessage] = useState("Teacher workflow ready.");
@@ -648,23 +650,10 @@ export default function TeacherPage() {
   };
 
   const createInvite = async () => {
-    try {
-      const res = await api.post("/student-invite", {
-        departmentId: user?.department,
-        year,
-        division,
-      });
-      setInviteResult({
-        inviteLink: res.data?.inviteLink || "",
-        inviteCode: res.data?.inviteCode || res.data?.invite?.inviteCode || "",
-      });
-      setMessage("Student invite generated. Share link or code.");
-      pushToast("Student invite generated successfully.", "success");
-    } catch (error) {
-      const msg = parseApiError(error, "Failed to generate invite.");
-      setMessage(msg);
-      pushToast(msg, "error");
-    }
+    setInviteResult(null);
+    setMessage("Open the dedicated invite page to generate student invite link, code, and password.");
+    pushToast("Redirecting to Invite Students page.", "info");
+    router.push("/teacher/invite");
   };
 
   const scheduleLecture = async () => {

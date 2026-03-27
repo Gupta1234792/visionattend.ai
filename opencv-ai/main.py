@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import os
 import time
 
@@ -6,6 +7,7 @@ import cv2
 import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from pymongo.errors import DuplicateKeyError
 
 from utils.mongo import faces as faces_col
 
@@ -87,6 +89,8 @@ def extract_single_face(frame):
 
 
 def cosine_similarity(a, b):
+    a = np.array(a, dtype=np.float32)
+    b = np.array(b, dtype=np.float32)
     norm_a = np.linalg.norm(a)
     norm_b = np.linalg.norm(b)
 
@@ -94,6 +98,19 @@ def cosine_similarity(a, b):
         return 0.0
 
     return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+def normalize_embedding(embedding):
+    normalized = np.array(embedding, dtype=np.float32)
+    norm = np.linalg.norm(normalized)
+    if norm != 0:
+        normalized = normalized / norm
+    return normalized
+
+
+def build_embedding_hash(embedding):
+    rounded = np.round(normalize_embedding(embedding), 6)
+    return hashlib.sha256(rounded.tobytes()).hexdigest()
 
 
 def check_duplicate_face(embedding, user_id):
@@ -105,10 +122,10 @@ def check_duplicate_face(embedding, user_id):
         return False, None
     
     # Convert to numpy arrays for comparison
-    current_embedding = np.array(embedding, dtype=np.float32)
+    current_embedding = normalize_embedding(embedding)
     
     for face in existing_faces:
-        stored_embedding = np.array(face["embedding"], dtype=np.float32)
+        stored_embedding = normalize_embedding(face["embedding"])
         similarity = cosine_similarity(current_embedding, stored_embedding)
         
         if similarity > DUPLICATE_FACE_THRESHOLD:
@@ -294,9 +311,8 @@ def register_face():
         np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
         axis=0,
     )
-    norm = np.linalg.norm(embedding)
-    if norm != 0:
-        embedding = embedding / norm
+    embedding = normalize_embedding(embedding)
+    embedding_hash = build_embedding_hash(embedding)
     
     # Check for duplicate face registration
     is_duplicate, existing_user = check_duplicate_face(embedding, user_id)
@@ -309,16 +325,27 @@ def register_face():
 
     now = time.time()
 
-    faces_col.delete_many({"userId": user_id})
-
-    faces_col.insert_one(
-        {
-            "userId": user_id,
-            "embedding": embedding.tolist(),
-            "createdAt": now,
-            "updatedAt": now,
-        }
-    )
+    try:
+        faces_col.update_one(
+            {"userId": user_id},
+            {
+                "$set": {
+                    "embedding": embedding.tolist(),
+                    "embeddingHash": embedding_hash,
+                    "updatedAt": now,
+                },
+                "$setOnInsert": {
+                    "userId": user_id,
+                    "createdAt": now,
+                },
+            },
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        return jsonify({
+            "success": False,
+            "message": "Face already registered with another account"
+        }), 403
 
     return jsonify(
         {
@@ -366,10 +393,10 @@ def verify_face():
     if not stored:
         return jsonify({"success": False, "message": "Face not registered"}), 404
 
-    stored_embedding = np.array(stored["embedding"], dtype=np.float32)
+    stored_embedding = normalize_embedding(stored["embedding"])
 
     scores = [
-        cosine_similarity(face.embedding, stored_embedding)
+        cosine_similarity(normalize_embedding(face.embedding), stored_embedding)
         for face in blink_result["faces"]
     ]
 
