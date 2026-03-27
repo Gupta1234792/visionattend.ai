@@ -25,6 +25,7 @@ export default function StudentFaceRegisterPage() {
   const [isCameraLaunching, setIsCameraLaunching] = useState(false);
   const [lastConfidence, setLastConfidence] = useState<number | null>(null);
   const [lowLightWarning, setLowLightWarning] = useState("");
+  const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const allowBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
   const devMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
   const {
@@ -45,6 +46,28 @@ export default function StudentFaceRegisterPage() {
     () => Math.round((capturedCount / CAPTURE_STEPS.length) * 100),
     [capturedCount],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadProfile = async () => {
+      try {
+        const res = await api.get("/students/me");
+        const isRegistered = Boolean(res.data?.student?.faceRegisteredAt);
+        if (!cancelled) {
+          setAlreadyRegistered(isRegistered);
+          if (isRegistered) {
+            setStatusTag("success");
+            setMessage("Face already registered for this account.");
+          }
+        }
+      } catch {}
+    };
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!cameraOpen || !videoReady || !videoRef.current || !canvasRef.current) {
@@ -90,7 +113,7 @@ export default function StudentFaceRegisterPage() {
   }, []);
 
   const openCamera = useCallback(async () => {
-    if (cameraOpen || isCameraLaunching) return;
+    if (cameraOpen || isCameraLaunching || alreadyRegistered) return;
     setIsCameraLaunching(true);
     setStatusTag("camera");
     setMessage("Opening camera...");
@@ -106,7 +129,7 @@ export default function StudentFaceRegisterPage() {
     setMessage("Camera ready. Capture your front face.");
     pushToast("Camera opened successfully.", "success");
     setIsCameraLaunching(false);
-  }, [cameraOpen, isCameraLaunching, openCameraStream, pushToast]);
+  }, [alreadyRegistered, cameraOpen, isCameraLaunching, openCameraStream, pushToast]);
 
   const handleCloseCamera = useCallback(() => {
     closeCamera();
@@ -137,7 +160,7 @@ export default function StudentFaceRegisterPage() {
   }, [activeStep.title, activeStepIndex, cameraOpen, captureFrame, videoReady]);
 
   const submitFace = useCallback(async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || alreadyRegistered) return;
 
     try {
       setIsSubmitting(true);
@@ -174,6 +197,7 @@ export default function StudentFaceRegisterPage() {
       if (res.data?.success) {
         setLastConfidence(Number(res.data?.confidence || 0));
         persistLocalFaceRegistered();
+        setAlreadyRegistered(true);
         setStatusTag("success");
         setMessage("Face registered successfully.");
         setShowSuccessOverlay(true);
@@ -198,21 +222,14 @@ export default function StudentFaceRegisterPage() {
           "error"
         );
       } else {
-        persistLocalFaceRegistered();
-        setLastConfidence(1);
-        setStatusTag("success");
-        setMessage("Face registered successfully.");
-        setShowSuccessOverlay(true);
-        pushToast("Face registered successfully.", "success");
-        closeCamera();
-        setTimeout(() => {
-          router.replace("/student/dashboard");
-        }, 1400);
+        setMessage(msg);
+        setStatusTag("retry");
+        pushToast(msg, "error");
       }
     } finally {
       setIsSubmitting(false);
     }
-  }, [cameraOpen, capturedFrames, closeCamera, isSubmitting, persistLocalFaceRegistered, pushToast, router]);
+  }, [alreadyRegistered, cameraOpen, capturedFrames, closeCamera, isSubmitting, persistLocalFaceRegistered, pushToast, router]);
 
   const continueWithBypass = useCallback(() => {
     if (!allowBypass) return;
@@ -241,13 +258,70 @@ export default function StudentFaceRegisterPage() {
                 {"\u2713"}
               </div>
               <h2 className="mt-6 text-3xl font-semibold text-slate-950">Face Registered Successfully</h2>
-              <p className="mt-3 text-sm text-slate-600">Your front-face profile is saved and dashboard access is now enabled.</p>
+              <p className="mt-3 text-sm text-slate-600">Your face is registered and attendance scan can now use it.</p>
             </div>
           </div>
         ) : null}
         {isMobileUnsafeCameraContext() ? (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             Camera may not work properly on non-secure connection.
+          </div>
+        ) : null}
+        {cameraOpen ? (
+          <div className="fixed inset-0 z-40 bg-slate-950">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              onLoadedMetadata={handleReady}
+              onLoadedData={handleReady}
+              onCanPlay={handleReady}
+              className="h-full w-full object-cover"
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
+              <div className="relative h-[62vh] w-full max-w-sm rounded-[2.5rem] border-[3px] border-emerald-400 shadow-[0_0_0_9999px_rgba(2,6,23,0.52)]">
+                <div className="absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-emerald-300/90" />
+                <div className="absolute left-1/2 top-8 h-[72%] w-0.5 -translate-x-1/2 bg-emerald-300/90" />
+              </div>
+            </div>
+            <div className="absolute inset-x-0 top-0 flex items-center justify-between px-5 py-5 text-white">
+              <div className="rounded-full bg-black/35 px-3 py-1 text-xs font-semibold backdrop-blur">
+                {videoReady ? "Camera ready" : "Opening camera..."}
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseCamera}
+                className="rounded-full bg-black/35 px-4 py-2 text-sm font-semibold backdrop-blur"
+              >
+                Close
+              </button>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 rounded-t-[2rem] bg-[linear-gradient(180deg,rgba(15,23,42,0.1),rgba(15,23,42,0.92))] px-4 pb-8 pt-6 text-white">
+              <div className="mx-auto max-w-md">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Instruction</p>
+                <p className="mt-2 text-2xl font-semibold">{isSubmitting ? "Registering face..." : "Look Straight"}</p>
+                <p className="mt-2 text-sm text-slate-300">Keep your whole face inside the guide and capture one clear front image.</p>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={captureCurrentStep}
+                    disabled={!cameraOpen || isSubmitting || alreadyRegistered}
+                    className="min-h-[52px] rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold disabled:opacity-50"
+                  >
+                    Capture
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitFace}
+                    disabled={!cameraOpen || !capturedFrames[0] || isSubmitting || alreadyRegistered}
+                    className="min-h-[52px] rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {isSubmitting ? "Registering..." : "Register Face"}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
         <div className="mx-auto w-full max-w-6xl">
@@ -279,7 +353,7 @@ export default function StudentFaceRegisterPage() {
 
               <div className="mt-5 grid gap-3 sm:flex sm:flex-wrap">
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-50 sm:w-auto" type="button" onClick={openCamera} disabled={cameraOpen || isCameraLaunching}>
-                  {isCameraLaunching ? "Starting..." : cameraOpen ? "Camera Open" : "Open Camera"}
+                  {alreadyRegistered ? "Face Registered" : isCameraLaunching ? "Starting..." : cameraOpen ? "Camera Open" : "Open Camera"}
                 </button>
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-50 sm:w-auto" type="button" onClick={handleCloseCamera} disabled={!cameraOpen}>
                   Close Camera
@@ -287,11 +361,11 @@ export default function StudentFaceRegisterPage() {
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-60 sm:w-auto" type="button" onClick={captureCurrentStep} disabled={!cameraOpen || isSubmitting}>
                   Capture Front Face
                 </button>
-                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || !capturedFrames[0] || isSubmitting}>
+                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || !capturedFrames[0] || isSubmitting || alreadyRegistered}>
                   {isSubmitting ? "Registering..." : "Complete Registration"}
                 </button>
-                {allowBypass ? <button className="min-h-[48px] w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50 sm:w-auto" type="button" onClick={continueWithBypass} disabled={isSubmitting}>Manual Access</button> : null}
-                {devMode ? <button className="min-h-[48px] w-full rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700 disabled:opacity-50 sm:w-auto" type="button" onClick={skipFaceRegistration} disabled={isSubmitting}>Skip in Dev</button> : null}
+                {allowBypass ? <button className="hidden min-h-[48px] w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50 sm:w-auto" type="button" onClick={continueWithBypass} disabled={isSubmitting}>Manual Access</button> : null}
+                {devMode ? <button className="hidden min-h-[48px] w-full rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700 disabled:opacity-50 sm:w-auto" type="button" onClick={skipFaceRegistration} disabled={isSubmitting}>Skip in Dev</button> : null}
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 sm:w-auto" type="button" onClick={() => {
                   setCapturedFrames([""]);
                   setActiveStepIndex(0);
@@ -302,7 +376,12 @@ export default function StudentFaceRegisterPage() {
                 </button>
               </div>
 
-              {cameraOpen ? (
+              {!cameraOpen ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  Camera opens in fullscreen mode for proper face alignment.
+                </div>
+              ) : null}
+              {cameraOpen ? null : (
                 <div className="relative mt-5 mx-auto w-full max-w-md overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-950 sm:max-w-none">
                   <video
                     ref={videoRef}

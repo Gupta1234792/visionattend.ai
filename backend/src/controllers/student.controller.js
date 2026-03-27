@@ -440,9 +440,9 @@ const registerStudentFace = async (req, res) => {
     }
 
     if (student.faceRegisteredAt) {
-      return res.status(200).json({
-        success: true,
-        message: "Face already registered",
+      return res.status(409).json({
+        success: false,
+        message: "Face already registered for this account",
         faceRegistered: true
       });
     }
