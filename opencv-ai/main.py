@@ -303,7 +303,8 @@ def register_face():
     if is_duplicate:
         return jsonify({
             "success": False,
-            "message": "Face already registered with another account"
+            "message": "Face already registered with another account",
+            "existingUserId": existing_user
         }), 403
 
     now = time.time()
@@ -342,7 +343,10 @@ def verify_face():
     if not user_id:
         return jsonify({"success": False, "message": "userId required"}), 400
 
-    frames = decode_frame_sequence(frames_value)
+    try:
+        frames = decode_frame_sequence(frames_value)
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
 
     blink_result = analyze_blink_sequence(frames)
 
@@ -350,7 +354,9 @@ def verify_face():
         return jsonify(
             {
                 "success": False,
+                "message": "Blink verification failed",
                 "livenessPassed": False,
+                "blinkDetected": False,
                 "blinkSignals": blink_result["signals"],
             }
         ), 403

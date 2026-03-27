@@ -226,12 +226,18 @@ export default function StudentFaceRegisterPage() {
         }, 1400);
       }
     } catch (error) {
-      const apiMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      const errorData = (error as { response?: { data?: { message?: string; existingUserName?: string } } })?.response?.data;
+      const apiMessage = errorData?.message;
       const msg = mapFaceErrorMessage(apiMessage || "Face registration failed.");
       setMessage(msg);
       setStatusTag("retry");
       if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("already registered")) {
-        pushToast("Face already registered with another account.", "error");
+        pushToast(
+          errorData?.existingUserName
+            ? `Face already registered with another account (${errorData.existingUserName}).`
+            : "Face already registered with another account.",
+          "error"
+        );
       } else if (msg.toLowerCase().includes("blink")) {
         pushToast("Blink verification failed. Please retry with one clear blink.", "error");
       } else if (msg.toLowerCase().includes("timeout")) {

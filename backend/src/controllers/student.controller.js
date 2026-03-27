@@ -390,10 +390,25 @@ const registerStudentFace = async (req, res) => {
       !Number.isFinite(confidenceValue) ||
       confidenceValue < FACE_REGISTRATION_CONFIDENCE
     ) {
+      let failureMessage = registerData?.message || "Face registration failed";
+      let existingUserName = null;
+      if (
+        registerRes.status === 403 &&
+        String(registerData?.message || "").toLowerCase().includes("already registered") &&
+        registerData?.existingUserId
+      ) {
+        const existingUser = await User.findById(registerData.existingUserId).select("name email").lean();
+        if (existingUser?.name) {
+          existingUserName = existingUser.name;
+          failureMessage = `Face already registered with another account (${existingUser.name})`;
+        }
+      }
+
       return res.status(403).json({
         success: false,
-        message: registerData?.message || "Face registration failed",
-        confidence: Number.isFinite(confidenceValue) ? confidenceValue : null
+        message: failureMessage,
+        confidence: Number.isFinite(confidenceValue) ? confidenceValue : null,
+        existingUserName
       });
     }
 

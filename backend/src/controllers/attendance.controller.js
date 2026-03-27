@@ -179,11 +179,11 @@ const startAttendanceSession = async (req, res) => {
       }
     });
 
-  res.status(201).json({
-  success: true,
-  message: `Attendance session started (${ATTENDANCE_LIMIT_MINUTES} min window)`,
-  session
-});
+    res.status(201).json({
+      success: true,
+      message: `Attendance session started (${ATTENDANCE_LIMIT_MINUTES} min window)`,
+      session
+    });
 
 // 🔔 PUSH NOTIFICATION SEND
 await sendPushNotification(
