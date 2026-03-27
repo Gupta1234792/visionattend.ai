@@ -16,6 +16,22 @@ const defaultConstraints: MediaStreamConstraints = {
   audio: false,
 };
 
+const fallbackConstraintsList: MediaStreamConstraints[] = [
+  defaultConstraints,
+  {
+    video: {
+      facingMode: "user",
+      width: { ideal: 720 },
+      height: { ideal: 1280 },
+    },
+    audio: false,
+  },
+  {
+    video: true,
+    audio: false,
+  },
+];
+
 export const getCameraErrorMessage = (error: unknown) => {
   const name = (error as { name?: string })?.name || "";
 
@@ -71,10 +87,27 @@ export function useCameraStream(options?: UseCameraStreamOptions) {
     try {
       openingRef.current = true;
       closeCamera();
+      const constraintsToTry = options?.constraints
+        ? [options.constraints, ...fallbackConstraintsList]
+        : fallbackConstraintsList;
 
-      const stream = await navigator.mediaDevices.getUserMedia(
-        options?.constraints || defaultConstraints,
-      );
+      let stream: MediaStream | null = null;
+      let lastError: unknown = null;
+
+      for (const constraints of constraintsToTry) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) {
+            break;
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!stream) {
+        throw lastError || new Error("Unable to access camera.");
+      }
 
       if (!mountedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
@@ -83,6 +116,11 @@ export function useCameraStream(options?: UseCameraStreamOptions) {
 
       streamRef.current = stream;
       if (videoRef.current) {
+        videoRef.current.muted = true;
+        videoRef.current.autoplay = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.setAttribute("muted", "true");
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => null);
       }

@@ -324,22 +324,22 @@ export default function StudentFaceRegisterPage() {
                 <div className="h-full rounded-full bg-[linear-gradient(90deg,#135ed8,#36cfc9)] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
               </div>
 
-              <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap">
-                <button className="min-h-[44px] w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-50 sm:w-auto" type="button" onClick={openCamera} disabled={cameraOpen || isCameraLaunching}>
+              <div className="mt-5 grid gap-3 sm:flex sm:flex-wrap">
+                <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-50 sm:w-auto" type="button" onClick={openCamera} disabled={cameraOpen || isCameraLaunching}>
                   {isCameraLaunching ? "Starting..." : cameraOpen ? "Camera Open" : "Open Camera"}
                 </button>
-                <button className="min-h-[44px] w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-50 sm:w-auto" type="button" onClick={handleCloseCamera} disabled={!cameraOpen}>
+                <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-50 sm:w-auto" type="button" onClick={handleCloseCamera} disabled={!cameraOpen}>
                   Close Camera
                 </button>
-                <button className="min-h-[44px] w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-60 sm:w-auto" type="button" onClick={captureCurrentStep} disabled={!cameraOpen || isSubmitting}>
+                <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-60 sm:w-auto" type="button" onClick={captureCurrentStep} disabled={!cameraOpen || isSubmitting}>
                   Capture {activeStep.title}
                 </button>
-                <button className="min-h-[44px] w-full rounded-xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || capturedFrames.some((frame) => !frame) || isSubmitting}>
+                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || capturedFrames.some((frame) => !frame) || isSubmitting}>
                   {isSubmitting ? "Verifying..." : "Verify Blink & Complete"}
                 </button>
-                {allowBypass ? <button className="min-h-[44px] w-full rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50 sm:w-auto" type="button" onClick={continueWithBypass} disabled={isSubmitting}>Manual Access</button> : null}
-                {devMode ? <button className="min-h-[44px] w-full rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700 disabled:opacity-50 sm:w-auto" type="button" onClick={skipFaceRegistration} disabled={isSubmitting}>Skip in Dev</button> : null}
-                <button className="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 sm:w-auto" type="button" onClick={() => {
+                {allowBypass ? <button className="min-h-[48px] w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50 sm:w-auto" type="button" onClick={continueWithBypass} disabled={isSubmitting}>Manual Access</button> : null}
+                {devMode ? <button className="min-h-[48px] w-full rounded-2xl border border-green-300 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700 disabled:opacity-50 sm:w-auto" type="button" onClick={skipFaceRegistration} disabled={isSubmitting}>Skip in Dev</button> : null}
+                <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 sm:w-auto" type="button" onClick={() => {
                   setCapturedFrames(["", "", ""]);
                   setBlinkFrames([]);
                   setActiveStepIndex(0);
@@ -351,8 +351,17 @@ export default function StudentFaceRegisterPage() {
               </div>
 
               {cameraOpen ? (
-                <div className="mt-5 mx-auto w-full max-w-md overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-950 sm:max-w-none">
-                  <video ref={videoRef} autoPlay playsInline muted onLoadedMetadata={handleReady} className="aspect-[16/10] w-full object-cover" />
+                <div className="relative mt-5 mx-auto w-full max-w-md overflow-hidden rounded-[1.75rem] border border-slate-200 bg-slate-950 sm:max-w-none">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    onLoadedMetadata={handleReady}
+                    onLoadedData={handleReady}
+                    onCanPlay={handleReady}
+                    className="aspect-[4/5] w-full bg-slate-950 object-cover sm:aspect-[16/10]"
+                  />
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="relative h-[72%] w-[52%] rounded-[2rem] border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.28)]">
                       <div className="absolute inset-x-6 top-1/2 h-0.5 -translate-y-1/2 bg-emerald-300/80" />
@@ -372,6 +381,13 @@ export default function StudentFaceRegisterPage() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Captured</p>
                       <p className="mt-1 text-lg font-semibold">{capturedCount}/3</p>
                     </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-5 mx-auto flex w-full max-w-md items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-100 px-6 py-12 text-center sm:max-w-none">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Camera preview will appear here</p>
+                    <p className="mt-2 text-sm text-slate-600">Tap <span className="font-semibold">Open Camera</span> and allow permission to continue face registration.</p>
                   </div>
                 </div>
               ) : null}
