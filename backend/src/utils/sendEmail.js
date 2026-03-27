@@ -21,6 +21,7 @@ const buildTransporter = () => {
       connectionTimeout: EMAIL_TIMEOUT_MS,
       greetingTimeout: EMAIL_TIMEOUT_MS,
       socketTimeout: EMAIL_TIMEOUT_MS,
+      requireTLS: String(process.env.EMAIL_REQUIRE_TLS || "true") === "true",
       auth: {
         user: emailUser,
         pass: emailPass
@@ -50,7 +51,7 @@ const sendEmail = async ({ to, subject, html }) => {
 
     await Promise.race([
       transporter.sendMail({
-        from: `"VisionAttend" <${process.env.EMAIL_USER}>`,
+        from: process.env.EMAIL_FROM || `"VisionAttend" <${process.env.EMAIL_USER}>`,
         to,
         subject,
         html
@@ -63,7 +64,14 @@ const sendEmail = async ({ to, subject, html }) => {
     console.log("Email sent to:", to);
     return true;
   } catch (error) {
-    console.error("Email send error:", error?.message || error);
+    console.error("Email send error:", {
+      message: error?.message || error,
+      to,
+      subject,
+      service: process.env.EMAIL_SERVICE || null,
+      host: process.env.EMAIL_HOST || null,
+      user: process.env.EMAIL_USER || null,
+    });
     return false;
   }
 };
