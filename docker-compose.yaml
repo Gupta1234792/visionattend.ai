@@ -22,8 +22,6 @@ services:
 
   opencv-ai:
     build: ./opencv-ai
-    restart: unless-stopped
-    networks: [visionattend_net]
     ports:
       - "10000:10000"
     environment:

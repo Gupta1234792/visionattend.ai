@@ -193,6 +193,11 @@ export default function StudentFaceRegisterPage() {
       setMessage("Unable to capture frame. Keep your face inside the guide and retry.");
       return;
     }
+    if (!frame.startsWith("data:image/")) {
+      setMessage("Captured frame is invalid. Retry once.");
+      setStatusTag("retry");
+      return;
+    }
 
     setCapturedFrames((current) => {
       const next = [...current];
@@ -225,7 +230,14 @@ export default function StudentFaceRegisterPage() {
       setStatusTag("verifying");
       setMessage("Registering your face...");
 
-      const registrationFrames = await buildRegistrationVariants(capturedFrames[0]);
+      const registrationFrames = (await buildRegistrationVariants(capturedFrames[0])).filter(
+        (frame) => typeof frame === "string" && frame.startsWith("data:image/"),
+      );
+      if (!registrationFrames.length) {
+        setMessage("Captured face frame is invalid. Capture again.");
+        setStatusTag("retry");
+        return;
+      }
       await wait(120);
 
       const res = await api.post(

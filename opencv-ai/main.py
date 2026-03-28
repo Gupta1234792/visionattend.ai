@@ -5,7 +5,7 @@ import time
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, request, abort
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo.errors import DuplicateKeyError
 
@@ -14,130 +14,286 @@ from utils.mongo import faces as faces_col
 app = Flask(__name__)
 CORS(app)
 
-# ================= CONFIG =================
-API_KEY = os.getenv("OPENCV_API_KEY", "visionattend123")
-
-MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.35"))
+API_KEY = os.getenv("OPENCV_API_KEY", "")
+MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.50"))
 DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
+REGISTER_THRESHOLD = float(os.getenv("REGISTER_THRESHOLD", "0.10"))
+MIN_IMAGE_WIDTH = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
+MIN_IMAGE_HEIGHT = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
+MIN_BRIGHTNESS = float(os.getenv("MIN_BRIGHTNESS", "45"))
+MIN_LAPLACIAN_VAR = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
+MIN_FACE_AREA_RATIO = float(os.getenv("MIN_FACE_AREA_RATIO", "0.08"))
 
-# ================= MODEL =================
 arcface = None
+
 
 def get_model():
     global arcface
     if arcface is None:
-        print("🔥 Loading InsightFace...")
+        print("Loading InsightFace model...")
         from insightface.app import FaceAnalysis
+
         arcface = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
         arcface.prepare(ctx_id=-1, det_size=(640, 640))
-        print("✅ Model loaded")
+        print("InsightFace loaded")
     return arcface
 
-# ================= AUTH =================
-def check_key():
-    key = request.headers.get("x-opencv-key")
-    if key != API_KEY:
-        abort(403, description="Invalid API Key")
 
-# ================= UTILS =================
+def ensure_api_key():
+    if API_KEY:
+        key = request.headers.get("x-opencv-key")
+        if key != API_KEY:
+            return False
+    return True
 
-def decode_image(img_str):
+
+def log_event(event, **payload):
+    safe = " ".join([f"{key}={value}" for key, value in payload.items()])
+    print(f"[opencv] {event} {safe}".strip())
+
+
+def error_response(message, status=400, code="UNKNOWN_ERROR", **extra):
+    payload = {"success": False, "message": message, "code": code}
+    payload.update(extra)
+    return jsonify(payload), status
+
+
+def decode_image_payload(image_value):
+    if not image_value or not isinstance(image_value, str):
+        raise ValueError("Image is required")
+
     try:
-        if "," in img_str:
-            _, img_str = img_str.split(",", 1)
-        img = base64.b64decode(img_str)
-        arr = np.frombuffer(img, np.uint8)
-        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    except:
-        return None
+        encoded = image_value.split(",", 1)[1] if "," in image_value else image_value
+        binary = base64.b64decode(encoded)
+    except Exception:
+        raise ValueError("Invalid image encoding")
+
+    if not binary:
+        raise ValueError("Empty image payload")
+
+    frame = cv2.imdecode(np.frombuffer(binary, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise ValueError("Corrupted image")
+
+    return frame
 
 
-def get_face(frame):
-    model = get_model()
-    faces = model.get(frame)
+def basic_image_quality(frame):
+    height, width = frame.shape[:2]
+    if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
+        return False, "Low quality image", "LOW_RESOLUTION"
 
-    if len(faces) == 0:
-        return None
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    brightness = float(np.mean(gray))
+    if brightness < MIN_BRIGHTNESS:
+        return False, "Low quality image", "IMAGE_TOO_DARK"
 
-    return faces[0]  # always first face
+    blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    if blur_score < MIN_LAPLACIAN_VAR:
+        return False, "Low quality image", "IMAGE_TOO_BLURRY"
+
+    return True, "", ""
 
 
-def normalize(emb):
-    emb = np.array(emb, dtype=np.float32)
+def decode_frame_sequence(frames_value, image_value=None):
+    frames = []
+
+    if isinstance(frames_value, list):
+        for item in frames_value:
+            frames.append(decode_image_payload(item))
+
+    if not frames and image_value:
+        frames.append(decode_image_payload(image_value))
+
+    if not frames:
+        raise ValueError("At least one registration frame is required")
+
+    return frames
+
+
+def generate_detection_variants(frame):
+    variants = [frame]
+
+    try:
+      height, width = frame.shape[:2]
+      max_dim = max(height, width)
+      if max_dim < 960:
+          scale = 960.0 / max_dim
+          variants.append(
+              cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_CUBIC)
+          )
+
+      crop_w = max(1, int(width * 0.82))
+      crop_h = max(1, int(height * 0.86))
+      crop_x = max(0, (width - crop_w) // 2)
+      crop_y = max(0, (height - crop_h) // 2)
+      center_crop = frame[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+      if center_crop.size:
+          variants.append(center_crop)
+          variants.append(cv2.resize(center_crop, (width, height), interpolation=cv2.INTER_CUBIC))
+    except Exception:
+      pass
+
+    return variants
+
+
+def normalize_embedding(embedding):
+    emb = np.array(embedding, dtype=np.float32)
     norm = np.linalg.norm(emb)
-    return emb / norm if norm != 0 else emb
+    if norm == 0:
+        return emb
+    return emb / norm
 
 
-def cosine(a, b):
+def cosine_similarity(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
-def hash_emb(emb):
-    return hashlib.sha256(np.round(emb, 6).tobytes()).hexdigest()
+def build_embedding_hash(embedding):
+    rounded = np.round(normalize_embedding(embedding), 6)
+    return hashlib.sha256(rounded.tobytes()).hexdigest()
 
-# ================= ROUTES =================
+
+def extract_single_face(frame):
+    model = get_model()
+    multiple_faces = False
+
+    for candidate in generate_detection_variants(frame):
+        faces = model.get(candidate)
+
+        if not faces:
+            continue
+        if len(faces) > 1:
+            multiple_faces = True
+            continue
+        return faces[0], None
+
+    if multiple_faces:
+        return None, "Multiple faces detected"
+    return None, "No face detected"
+
+
+def registration_quality(face, frame):
+    det_score = float(getattr(face, "det_score", 0.0))
+    bbox = np.array(face.bbox).astype(np.float32)
+    width = max(1.0, float(bbox[2] - bbox[0]))
+    height = max(1.0, float(bbox[3] - bbox[1]))
+    face_area_ratio = min(1.0, (width * height) / (frame.shape[0] * frame.shape[1]))
+    size_score = min(1.0, face_area_ratio * 8.0)
+    return float(round((det_score * 0.7) + (size_score * 0.3), 4))
+
+
+def face_is_too_small(face, frame):
+    bbox = np.array(face.bbox).astype(np.float32)
+    width = max(1.0, float(bbox[2] - bbox[0]))
+    height = max(1.0, float(bbox[3] - bbox[1]))
+    ratio = (width * height) / (frame.shape[0] * frame.shape[1])
+    return ratio < MIN_FACE_AREA_RATIO
+
+
+def compute_dynamic_match_threshold(quality_score):
+    if quality_score < 0.30:
+        return max(MATCH_THRESHOLD, 0.60)
+    if quality_score > 0.75:
+        return max(0.45, MATCH_THRESHOLD - 0.03)
+    return MATCH_THRESHOLD
+
+
+def find_duplicate_face(embedding, user_id):
+    current_embedding = normalize_embedding(embedding)
+
+    for doc in faces_col.find({"userId": {"$ne": user_id}}, {"userId": 1, "embedding": 1}):
+        stored = doc.get("embedding")
+        if not stored:
+            continue
+        similarity = cosine_similarity(current_embedding, normalize_embedding(stored))
+        if similarity >= DUPLICATE_FACE_THRESHOLD:
+            return True, doc.get("userId")
+
+    return False, None
+
+
+@app.get("/")
+def home():
+    return {"success": True, "message": "VisionAttend OpenCV AI running"}
+
 
 @app.get("/health")
 def health():
-    return {"success": True, "status": "ok"}
+    return {"success": True, "status": "healthy"}
 
-
-# ---------- REGISTER ----------
 
 @app.post("/register")
-def register():
-    check_key()
+def register_face():
+    if not ensure_api_key():
+        return error_response("Invalid OpenCV key", 403, code="INVALID_API_KEY")
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_id = str(data.get("userId", "")).strip()
-    frames = data.get("frames", [])
     image = data.get("image")
-
-    print(f"📸 REGISTER → {user_id}")
+    frames_value = data.get("frames")
 
     if not user_id:
-        return jsonify({"success": False, "message": "userId required"}), 400
+        return error_response("userId required", 400, code="MISSING_USER_ID")
 
-    imgs = []
+    log_event("REGISTER_START", userId=user_id)
 
-    if frames:
-        for f in frames:
-            img = decode_image(f)
-            if img is not None:
-                imgs.append(img)
+    try:
+        frames = decode_frame_sequence(frames_value, image)
+    except ValueError as error:
+        return error_response(str(error), 400, code="INVALID_IMAGE")
 
-    elif image:
-        img = decode_image(image)
-        if img is not None:
-            imgs.append(img)
+    faces = []
+    confidences = []
+    errors = []
 
-    if not imgs:
-        return jsonify({"success": False, "message": "Invalid image"}), 400
+    for frame in frames:
+        ok, quality_message, quality_code = basic_image_quality(frame)
+        if not ok:
+            errors.append(quality_message)
+            continue
+        face, error = extract_single_face(frame)
+        if error:
+            errors.append(error)
+            continue
+        if face_is_too_small(face, frame):
+            errors.append("Low quality image")
+            continue
+        faces.append(face)
+        confidences.append(registration_quality(face, frame))
 
-    embeddings = []
+    if not faces:
+        failure_message = errors[0] if errors else "No face detected"
+        code = "NO_FACE_DETECTED"
+        if failure_message == "Multiple faces detected":
+            code = "MULTIPLE_FACES"
+        elif failure_message == "Low quality image":
+            code = "LOW_QUALITY_IMAGE"
+        log_event("REGISTER_FAIL", userId=user_id, reason=code)
+        return error_response(failure_message, 400, code=code)
 
-    for img in imgs:
-        face = get_face(img)
-        if face is not None:
-            embeddings.append(face.embedding)
+    confidence = float(round(sum(confidences) / len(confidences), 4))
+    if confidence < REGISTER_THRESHOLD:
+        log_event("REGISTER_FAIL", userId=user_id, reason="LOW_CONFIDENCE", confidence=confidence)
+        return error_response("Low quality image", 403, code="LOW_QUALITY_IMAGE", confidence=confidence)
 
-    if len(embeddings) == 0:
-        return jsonify({"success": False, "message": "No face detected"}), 400
+    embedding = np.mean(
+        np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
+        axis=0,
+    )
+    embedding = normalize_embedding(embedding)
+    embedding_hash = build_embedding_hash(embedding)
 
-    emb = normalize(np.mean(embeddings, axis=0))
-    emb_hash = hash_emb(emb)
-
-    # duplicate check
-    for doc in faces_col.find():
-        existing = normalize(doc["embedding"])
-        sim = cosine(emb, existing)
-
-        if sim > DUPLICATE_FACE_THRESHOLD:
-            return jsonify({
-                "success": False,
-                "message": "Face already registered",
-                "existingUserId": doc["userId"]
-            }), 403
+    is_duplicate, existing_user_id = find_duplicate_face(embedding, user_id)
+    if is_duplicate:
+        log_event("REGISTER_FAIL", userId=user_id, reason="DUPLICATE_FACE", existingUserId=existing_user_id)
+        return error_response(
+            "Face already registered with another account",
+            403,
+            code="DUPLICATE_FACE",
+            existingUserId=existing_user_id,
+            confidence=confidence,
+        )
 
     now = time.time()
 
@@ -146,8 +302,8 @@ def register():
             {"userId": user_id},
             {
                 "$set": {
-                    "embedding": emb.tolist(),
-                    "embeddingHash": emb_hash,
+                    "embedding": embedding.tolist(),
+                    "embeddingHash": embedding_hash,
                     "updatedAt": now,
                 },
                 "$setOnInsert": {
@@ -158,77 +314,86 @@ def register():
             upsert=True,
         )
     except DuplicateKeyError:
-        return jsonify({
-            "success": False,
-            "message": "Duplicate face"
-        }), 403
+        return error_response("Face already registered with another account", 403, code="DUPLICATE_FACE")
 
-    return jsonify({
-        "success": True,
-        "message": "Face registered",
-        "confidence": 0.9,
-        "embedding": emb.tolist()
-    })
+    log_event("REGISTER_SUCCESS", userId=user_id, confidence=confidence, frames=len(faces))
 
+    return jsonify(
+        {
+            "success": True,
+            "confidence": confidence,
+            "embedding": embedding.tolist(),
+            "message": "Face registered",
+        }
+    )
 
-# ---------- VERIFY ----------
 
 @app.post("/verify")
-def verify():
-    check_key()
+def verify_face():
+    if not ensure_api_key():
+        return error_response("Invalid OpenCV key", 403, code="INVALID_API_KEY")
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_id = str(data.get("userId", "")).strip()
-    frames = data.get("frames", [])
-
-    print(f"🔍 VERIFY → {user_id}")
+    image = data.get("image")
+    frames_value = data.get("frames")
 
     if not user_id:
-        return jsonify({"success": False}), 400
+        return error_response("userId required", 400, code="MISSING_USER_ID", matched=False, confidence=None)
 
-    if not frames:
-        return jsonify({"success": False}), 400
+    log_event("VERIFY_START", userId=user_id)
 
-    imgs = []
-    for f in frames:
-        img = decode_image(f)
-        if img is not None:
-            imgs.append(img)
+    try:
+        frames = decode_frame_sequence(frames_value, image)
+    except ValueError as error:
+        return error_response(str(error), 400, code="INVALID_IMAGE", matched=False, confidence=None)
 
-    embeddings = []
+    faces = []
+    quality_scores = []
+    for frame in frames:
+        ok, quality_message, quality_code = basic_image_quality(frame)
+        if not ok:
+            continue
+        face, error = extract_single_face(frame)
+        if error:
+            continue
+        if face_is_too_small(face, frame):
+            continue
+        faces.append(face)
+        quality_scores.append(registration_quality(face, frame))
 
-    for img in imgs:
-        face = get_face(img)
-        if face is not None:
-            embeddings.append(face.embedding)
+    if not faces:
+        log_event("VERIFY_FAIL", userId=user_id, reason="NO_FACE_DETECTED")
+        return error_response("No face detected", 400, code="NO_FACE_DETECTED", matched=False, confidence=None)
 
-    if len(embeddings) == 0:
-        return jsonify({"success": False, "matched": False}), 400
+    stored = faces_col.find_one({"userId": user_id}, {"embedding": 1})
+    if not stored or not stored.get("embedding"):
+        log_event("VERIFY_FAIL", userId=user_id, reason="FACE_NOT_REGISTERED")
+        return error_response("Face not registered", 404, code="FACE_NOT_REGISTERED", matched=False, confidence=None)
 
-    emb = normalize(np.mean(embeddings, axis=0))
+    stored_embedding = normalize_embedding(stored["embedding"])
+    scores = [
+        cosine_similarity(normalize_embedding(face.embedding), stored_embedding)
+        for face in faces
+    ]
+    score = max(scores)
+    quality_score = max(quality_scores) if quality_scores else 0.0
+    effective_threshold = compute_dynamic_match_threshold(quality_score)
+    matched = score >= effective_threshold
+    log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=effective_threshold, matched=matched)
 
-    stored = faces_col.find_one({"userId": user_id})
+    return jsonify(
+        {
+            "success": matched,
+            "matched": matched,
+            "confidence": float(score),
+            "livenessPassed": True,
+            "blinkDetected": False,
+            "blinkSignals": [],
+            "message": "Face matched" if matched else "Face not recognized",
+        }
+    ), (200 if matched else 403)
 
-    if not stored:
-        return jsonify({"success": False, "matched": False}), 404
-
-    saved = normalize(stored["embedding"])
-    sim = cosine(emb, saved)
-
-    matched = sim >= MATCH_THRESHOLD
-
-    print(f"👉 similarity={sim} matched={matched}")
-
-    return jsonify({
-        "success": True,
-        "matched": matched,
-        "confidence": sim,
-        "livenessPassed": True,
-        "blinkDetected": False
-    })
-
-
-# ================= RUN =================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))

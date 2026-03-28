@@ -16,7 +16,7 @@ const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv
 const sendPushNotification = async () => false;
 
 const ATTENDANCE_LIMIT_MINUTES = 10;
-const FACE_CONFIDENCE_THRESHOLD = 0.3;
+const FACE_CONFIDENCE_THRESHOLD = Number(process.env.FACE_CONFIDENCE_THRESHOLD) || 0.5;
 const LOCATION_GREEN_METERS = Number(process.env.LOCATION_GREEN_METERS) || 50;
 const LOCATION_YELLOW_METERS = Number(process.env.LOCATION_YELLOW_METERS) || 150;
 const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
@@ -684,7 +684,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     if (!getOpencvEndpointCandidates("verify").length) {
       return res.status(503).json({
         success: false,
-        message: "OpenCV verify service not configured"
+        message: "OpenCV verify service not configured",
+        code: "OPENCV_NOT_CONFIGURED"
       });
     }
 
@@ -692,14 +693,16 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     if (!session || !session.isActive) {
       return res.status(404).json({
         success: false,
-        message: "Attendance session not active"
+        message: "Attendance session not active",
+        code: "SESSION_NOT_ACTIVE"
       });
     }
 
     if (session.department.toString() !== req.user.department?.toString()) {
       return res.status(403).json({
         success: false,
-        message: "Session is outside your department"
+        message: "Session is outside your department",
+        code: "DEPARTMENT_MISMATCH"
       });
     }
 
@@ -712,7 +715,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     if (session.batchKey !== expectedBatchKey) {
       return res.status(403).json({
         success: false,
-        message: "Session is not assigned to your batch"
+        message: "Session is not assigned to your batch",
+        code: "BATCH_MISMATCH"
       });
     }
 
@@ -720,7 +724,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     if (remainingCooldown) {
       return res.status(429).json({
         success: false,
-        message: `Please wait ${remainingCooldown}s before retrying face scan`
+        message: `Please wait ${remainingCooldown}s before retrying face scan`,
+        code: "SCAN_COOLDOWN"
       });
     }
 
@@ -862,7 +867,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     if (!insertResult.upsertedCount) {
       return res.status(409).json({
         success: false,
-        message: "Attendance already marked today"
+        message: "Attendance already marked today",
+        code: "ATTENDANCE_ALREADY_MARKED"
       });
     }
 
@@ -917,19 +923,22 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     if (err.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "Attendance already marked today"
+        message: "Attendance already marked today",
+        code: "ATTENDANCE_ALREADY_MARKED"
       });
     }
     if (err.name === "AbortError") {
       return res.status(504).json({
         success: false,
-        message: "Face verification timeout"
+        message: "Face verification timeout",
+        code: "OPENCV_TIMEOUT"
       });
     }
     console.error("scanFaceAndMarkClassAttendance error:", err);
     return res.status(500).json({
       success: false,
-      message: "Face attendance failed"
+      message: "Face attendance failed",
+      code: "FACE_ATTENDANCE_FAILED"
     });
   }
 };
@@ -984,7 +993,8 @@ const markAttendance = async (req, res) => {
     if (!studentProfile?.faceRegisteredAt && !bypassAllowed) {
       return res.status(403).json({
         success: false,
-        message: "Face registration is required before attendance marking"
+        message: "Face registration is required before attendance marking",
+        code: "FACE_REGISTRATION_REQUIRED"
       });
     }
 
@@ -992,7 +1002,8 @@ const markAttendance = async (req, res) => {
     if (!department || department.college?.toString() !== req.user.college?.toString()) {
       return res.status(403).json({
         success: false,
-        message: "Cross-college access denied"
+        message: "Cross-college access denied",
+        code: "COLLEGE_MISMATCH"
       });
     }
 
@@ -1003,7 +1014,8 @@ const markAttendance = async (req, res) => {
 
       return res.status(403).json({
         success: false,
-        message: "Attendance window closed"
+        message: "Attendance window closed",
+        code: "SESSION_EXPIRED"
       });
     }
 
@@ -1333,7 +1345,8 @@ const scanFaceAndMarkAttendance = async (req, res) => {
         success: false,
         message: opencvData?.message || "Face not recognized",
         confidence: Number.isFinite(confidenceValue) ? confidenceValue : null,
-        blinkDetected: Boolean(opencvData?.blinkDetected)
+        blinkDetected: Boolean(opencvData?.blinkDetected),
+        code: opencvData?.code || "FACE_NOT_RECOGNIZED"
       });
     }
 
@@ -1341,7 +1354,8 @@ const scanFaceAndMarkAttendance = async (req, res) => {
     if (!college?.location?.latitude || !college?.location?.longitude) {
       return res.status(400).json({
         success: false,
-        message: "College location is not configured"
+        message: "College location is not configured",
+        code: "COLLEGE_LOCATION_MISSING"
       });
     }
 

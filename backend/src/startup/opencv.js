@@ -71,7 +71,7 @@ const checkOpenCvHealth = async () => {
       try {
         const response = await fetch(healthUrl, {
           method: "GET",
-          signal: AbortSignal.timeout(timeoutMs)
+          signal: AbortSignal.timeout(timeoutMs),
         });
         if (!response.ok) {
           lastMessage = `OpenCV health check failed with status ${response.status} at ${healthUrl}`;
@@ -96,33 +96,65 @@ const checkOpenCvHealth = async () => {
   return { ok: false, healthUrl: candidateHealthUrls[0] || null, message: lastMessage };
 };
 
+const fixPayload = (payload = {}) => {
+  let { image, frames } = payload;
+
+  frames = Array.isArray(frames)
+    ? frames.filter((frame) => typeof frame === "string" && frame.startsWith("data:image/"))
+    : [];
+
+  if (!image && frames.length > 0) {
+    image = frames[0];
+  }
+
+  if (!frames.length && image) {
+    frames = [image];
+  }
+
+  return {
+    ...payload,
+    image: image || null,
+    frames,
+  };
+};
+
 const postToOpenCv = async (kind, payload, options = {}) => {
   const candidateUrls = getOpencvEndpointCandidates(kind);
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || 15000));
+  const retries = Math.max(1, Number(options.retries || 2));
   const headers = {
     "Content-Type": "application/json",
     "x-opencv-key": process.env.OPENCV_API_KEY || "",
-    ...(options.headers || {})
+    ...(options.headers || {}),
   };
 
   if (!candidateUrls.length) {
     throw new Error(`OpenCV ${kind} endpoint not configured`);
   }
 
+  const finalPayload = fixPayload(payload);
   let lastError = null;
 
   for (const url of candidateUrls) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(timeoutMs)
-      });
-      const data = await response.json().catch(() => ({}));
-      return { response, data, url };
-    } catch (error) {
-      lastError = error;
+    for (let attempt = 1; attempt <= retries; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(finalPayload),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const data = await response.json().catch(() => ({
+          success: false,
+          message: "OpenCV returned invalid JSON",
+        }));
+        return { response, data, url };
+      } catch (error) {
+        lastError = error;
+        if (attempt < retries) {
+          await sleep(400 * attempt);
+        }
+      }
     }
   }
 
@@ -133,5 +165,5 @@ module.exports = {
   checkOpenCvHealth,
   resolveOpencvHealthUrl,
   getOpencvEndpointCandidates,
-  postToOpenCv
+  postToOpenCv,
 };

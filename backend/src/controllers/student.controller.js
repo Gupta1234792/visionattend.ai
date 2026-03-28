@@ -384,17 +384,19 @@ const registerStudentFace = async (req, res) => {
       ? image
       : validFrames[0] || "";
 
-    if (!primaryImage) {
-      return res.status(400).json({
-        success: false,
-        message: "Face image is required"
-      });
-    }
+   if (!primaryImage && validFrames.length === 0) {
+  return res.status(400).json({
+    success: false,
+    message: "Face image is required",
+    code: "MISSING_IMAGE"
+  });
+}
 
     if (validFrames.length < 1) {
       return res.status(400).json({
         success: false,
-        message: "At least one registration frame is required"
+        message: "At least one registration frame is required",
+        code: "EMPTY_FRAMES"
       });
     }
 
@@ -402,7 +404,8 @@ const registerStudentFace = async (req, res) => {
     if (parts.length !== 2 || !parts[1]) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image payload"
+        message: "Invalid image payload",
+        code: "INVALID_IMAGE"
       });
     }
 
@@ -410,7 +413,8 @@ const registerStudentFace = async (req, res) => {
     if (approxBytes < 12000) {
       return res.status(400).json({
         success: false,
-        message: "Image too small. Capture a clear face frame."
+        message: "Image too small. Capture a clear face frame.",
+        code: "LOW_QUALITY_IMAGE"
       });
     }
 
@@ -419,7 +423,8 @@ const registerStudentFace = async (req, res) => {
     if (!student || student.role !== "student") {
       return res.status(404).json({
         success: false,
-        message: "Student not found"
+        message: "Student not found",
+        code: "STUDENT_NOT_FOUND"
       });
     }
 
@@ -440,14 +445,16 @@ const registerStudentFace = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: "Face already registered for this account",
-        faceRegistered: true
+        faceRegistered: true,
+        code: "FACE_ALREADY_REGISTERED"
       });
     }
 
     if (!getOpencvEndpointCandidates("register").length) {
       return res.status(503).json({
         success: false,
-        message: "OpenCV register service not configured"
+        message: "OpenCV register service not configured",
+        code: "OPENCV_NOT_CONFIGURED"
       });
     }
 
@@ -490,7 +497,8 @@ const registerStudentFace = async (req, res) => {
         success: false,
         message: failureMessage,
         confidence: Number.isFinite(confidenceValue) ? confidenceValue : null,
-        existingUserName
+        existingUserName,
+        code: registerData?.code || "FACE_REGISTRATION_FAILED"
       });
     }
 
@@ -547,13 +555,15 @@ const registerStudentFace = async (req, res) => {
     if (error.name === "AbortError") {
       return res.status(504).json({
         success: false,
-        message: "Application failed to respond"
+        message: "Application failed to respond",
+        code: "OPENCV_TIMEOUT"
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: error?.message || "Failed to register face"
+      message: error?.message || "Failed to register face",
+      code: "FACE_REGISTRATION_FAILED"
     });
   }
 };
