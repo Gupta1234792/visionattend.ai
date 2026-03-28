@@ -65,8 +65,10 @@ def decode_frame_sequence(frames_value):
 
 
 def decode_registration_frames(frames_value, image_value=None):
-    if not isinstance(frames_value, list) or len(frames_value) < 3:
-        raise ValueError("Front, left, and right face captures are required")
+    if not isinstance(frames_value, list) or len(frames_value) < 1:
+        if image_value:
+            return [decode_image_payload(image_value)]
+        raise ValueError("At least one registration frame is required")
 
     frames = []
     for item in frames_value:
@@ -324,15 +326,21 @@ def register_face():
     candidate_frames = frame_sequence or [decode_image_payload(image)]
     faces = []
     confidences = []
+    errors = []
 
     for frame in candidate_frames:
         face, error = extract_single_face(frame)
 
         if error:
-            return jsonify({"success": False, "message": error}), 400
+            errors.append(error)
+            continue
 
         faces.append(face)
         confidences.append(registration_quality(face, frame))
+
+    if not faces:
+        failure_message = errors[0] if errors else "No face detected"
+        return jsonify({"success": False, "message": failure_message}), 400
 
     confidence = float(round(sum(confidences) / len(confidences), 4))
 

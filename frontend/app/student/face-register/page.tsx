@@ -11,8 +11,6 @@ import { getConfidenceUi, isMobileUnsafeCameraContext, mapFaceErrorMessage } fro
 
 const CAPTURE_STEPS = [
   { id: "front", title: "Look Straight", hint: "Keep your face centered and eyes open." },
-  { id: "left", title: "Turn Left", hint: "Turn slightly left and keep your face inside the guide." },
-  { id: "right", title: "Turn Right", hint: "Turn slightly right and keep your face inside the guide." },
 ] as const;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -201,14 +199,8 @@ export default function StudentFaceRegisterPage() {
       next[activeStepIndex] = frame;
       return next;
     });
-    const isLastStep = activeStepIndex >= CAPTURE_STEPS.length - 1;
-    setActiveStepIndex((current) => (current < CAPTURE_STEPS.length - 1 ? current + 1 : current));
-    setStatusTag(isLastStep ? "success" : "capture");
-    setMessage(
-      isLastStep
-        ? "All three angles captured. You can now complete registration."
-        : `${activeStep.title} captured. Continue with the next angle.`,
-    );
+    setStatusTag("success");
+    setMessage("Front face captured. You can now complete registration.");
   }, [activeStep.title, activeStepIndex, cameraOpen, captureFrame, videoReady]);
 
   const submitFace = useCallback(async () => {
@@ -224,8 +216,8 @@ export default function StudentFaceRegisterPage() {
       }
 
       const completeFrames = capturedFrames.filter(Boolean);
-      if (completeFrames.length !== CAPTURE_STEPS.length) {
-        setMessage("Capture front, left, and right face angles before submitting.");
+      if (completeFrames.length !== 1) {
+        setMessage("Capture your front face before submitting.");
         setStatusTag("retry");
         return;
       }
@@ -233,12 +225,7 @@ export default function StudentFaceRegisterPage() {
       setStatusTag("verifying");
       setMessage("Registering your face...");
 
-      const registrationFrames = await Promise.all(
-        capturedFrames.map(async (frame) => {
-          const [original, centered] = await buildRegistrationVariants(frame);
-          return centered || original;
-        }),
-      );
+      const registrationFrames = await buildRegistrationVariants(capturedFrames[0]);
       await wait(120);
 
       const res = await api.post(
@@ -356,7 +343,7 @@ export default function StudentFaceRegisterPage() {
               <div className="mx-auto max-w-md">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Instruction</p>
                 <p className="mt-2 text-2xl font-semibold">{isSubmitting ? "Registering face..." : activeStep.title}</p>
-                <p className="mt-2 text-sm text-slate-300">{activeStep.hint}</p>
+                <p className="mt-2 text-sm text-slate-300">Keep your whole face inside the guide and capture one clear front image.</p>
                 <div className="mt-5 grid grid-cols-2 gap-3">
                   <button
                     type="button"
@@ -369,7 +356,7 @@ export default function StudentFaceRegisterPage() {
                   <button
                     type="button"
                     onClick={submitFace}
-                    disabled={!cameraOpen || capturedFrames.filter(Boolean).length !== CAPTURE_STEPS.length || isSubmitting || alreadyRegistered}
+                    disabled={!cameraOpen || !capturedFrames[0] || isSubmitting || alreadyRegistered}
                     className="min-h-[52px] rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                   >
                     {isSubmitting ? "Registering..." : "Register Face"}
@@ -385,7 +372,7 @@ export default function StudentFaceRegisterPage() {
               Face Onboarding
             </div>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">Quick face registration for attendance access</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">Capture front, left, and right face angles to finish setup and continue to your dashboard.</p>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">Capture one clear front-face frame to finish setup and continue to your dashboard.</p>
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -394,7 +381,7 @@ export default function StudentFaceRegisterPage() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Step {Math.min(activeStepIndex + 1, CAPTURE_STEPS.length)} / {CAPTURE_STEPS.length}</p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950">{activeStep.title}</h2>
-                  <p className="mt-1 text-sm text-slate-600">{activeStep.hint}</p>
+                  <p className="mt-1 text-sm text-slate-600">Capture one clear front-face image to continue.</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Progress</p>
@@ -414,9 +401,9 @@ export default function StudentFaceRegisterPage() {
                   Close Camera
                 </button>
                 <button className="min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-60 sm:w-auto" type="button" onClick={captureCurrentStep} disabled={!cameraOpen || isSubmitting || alreadyRegistered}>
-                  Capture {activeStep.title}
+                  Capture Front Face
                 </button>
-                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || capturedFrames.filter(Boolean).length !== CAPTURE_STEPS.length || isSubmitting || alreadyRegistered}>
+                <button className="min-h-[48px] w-full rounded-2xl bg-[#135ed8] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(19,94,216,0.25)] transition hover:bg-[#0f51bc] disabled:opacity-60 sm:w-auto" type="button" onClick={submitFace} disabled={!cameraOpen || !capturedFrames[0] || isSubmitting || alreadyRegistered}>
                   {isSubmitting ? "Registering..." : "Complete Registration"}
                 </button>
                 {allowBypass ? <button className="hidden min-h-[48px] w-full rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 disabled:opacity-50 sm:w-auto" type="button" onClick={continueWithBypass} disabled={isSubmitting}>Manual Access</button> : null}
@@ -425,7 +412,7 @@ export default function StudentFaceRegisterPage() {
                   setCapturedFrames(Array(CAPTURE_STEPS.length).fill(""));
                   setActiveStepIndex(0);
                   setStatusTag(cameraOpen ? "capture" : "idle");
-                  setMessage("Capture front, left, and right face angles again.");
+                  setMessage("Capture your front face again.");
                 }}>
                   Retry
                 </button>
@@ -486,8 +473,8 @@ export default function StudentFaceRegisterPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Checklist</p>
                 <div className="mt-4 space-y-3">
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-900">1. Three-angle capture</p>
-                    <p className="mt-1 text-sm text-slate-600">Capture front, left, and right face angles clearly before submitting.</p>
+                    <p className="text-sm font-semibold text-slate-900">1. Front face capture</p>
+                    <p className="mt-1 text-sm text-slate-600">Capture one clear front-face image before submitting.</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="text-sm font-semibold text-slate-900">2. Camera stability</p>

@@ -391,10 +391,10 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    if (validFrames.length < 3) {
+    if (validFrames.length < 1) {
       return res.status(400).json({
         success: false,
-        message: "Front, left, and right face captures are required"
+        message: "At least one registration frame is required"
       });
     }
 
