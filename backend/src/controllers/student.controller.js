@@ -376,12 +376,9 @@ const resolveInviteCode = async (req, res) => {
 
 const registerStudentFace = async (req, res) => {
   try {
-    const { image, frames, blinkFrames } = req.body;
+    const { image, frames } = req.body;
     const validFrames = Array.isArray(frames)
       ? frames.filter((frame) => typeof frame === "string" && frame.startsWith("data:image/"))
-      : [];
-    const validBlinkFrames = Array.isArray(blinkFrames)
-      ? blinkFrames.filter((frame) => typeof frame === "string" && frame.startsWith("data:image/"))
       : [];
     const primaryImage = typeof image === "string" && image.startsWith("data:image/")
       ? image
@@ -394,10 +391,10 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    if (validFrames.length < 1 && !primaryImage) {
+    if (validFrames.length < 3) {
       return res.status(400).json({
         success: false,
-        message: "At least one registration frame is required"
+        message: "Front, left, and right face captures are required"
       });
     }
 
@@ -463,7 +460,7 @@ const registerStudentFace = async (req, res) => {
         year: student.year || "",
         division: student.division || "",
         image: primaryImage,
-        frames: validFrames.length ? validFrames : [primaryImage]
+        frames: validFrames
       },
       { timeoutMs: 30000 }
     );
@@ -540,7 +537,7 @@ const registerStudentFace = async (req, res) => {
       message: "Face registration completed",
       faceRegistered: true,
       confidence: confidenceValue,
-      frameCount: validFrames.length || 1,
+      frameCount: validFrames.length,
       blinkVerified: false
     });
 

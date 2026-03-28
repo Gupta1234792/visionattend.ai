@@ -65,10 +65,8 @@ def decode_frame_sequence(frames_value):
 
 
 def decode_registration_frames(frames_value, image_value=None):
-    if not isinstance(frames_value, list) or len(frames_value) < 1:
-        if image_value:
-            return [decode_image_payload(image_value)]
-        raise ValueError("At least one registration frame is required")
+    if not isinstance(frames_value, list) or len(frames_value) < 3:
+        raise ValueError("Front, left, and right face captures are required")
 
     frames = []
     for item in frames_value:
