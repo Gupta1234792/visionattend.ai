@@ -341,18 +341,13 @@ def verify_face():
         return error_response(str(error), 400, code="INVALID_IMAGE", matched=False, confidence=None)
 
     faces = []
-    quality_scores = []
     for frame in frames:
-        ok, quality_message, quality_code = basic_image_quality(frame)
-        if not ok:
-            continue
+        # Quality check SKIPPED — blur/dark allowed (same as register)
+        # Small face check SKIPPED
         face, error = extract_single_face(frame)
         if error:
             continue
-        if face_is_too_small(face, frame):
-            continue
         faces.append(face)
-        quality_scores.append(registration_quality(face, frame))
 
     if not faces:
         log_event("VERIFY_FAIL", userId=user_id, reason="NO_FACE_DETECTED")
@@ -369,9 +364,7 @@ def verify_face():
         for face in faces
     ]
     score = max(scores)
-    quality_score = max(quality_scores) if quality_scores else 0.0
-    effective_threshold = compute_dynamic_match_threshold(quality_score)
-    matched = score >= effective_threshold
+    matched = score >= 0.45
     log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=effective_threshold, matched=matched)
 
     return jsonify(
