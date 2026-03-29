@@ -64,6 +64,7 @@ function AuthPageInner() {
   const [resetLoading, setResetLoading] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [showLocalDemoHint, setShowLocalDemoHint] = useState(false);
 
   const [loginForm, setLoginForm] = useState({
     email: "",
@@ -95,6 +96,12 @@ function AuthPageInner() {
 
     return () => window.clearInterval(timer);
   }, [cooldownSeconds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const host = window.location.hostname;
+    setShowLocalDemoHint(host === "localhost" || host === "127.0.0.1");
+  }, []);
 
   const mailStatusTone = useMemo(() => {
     if (!mailStatus) return "";
@@ -291,6 +298,14 @@ function AuthPageInner() {
           <p className="mt-2 text-gray-500">
             AI-powered biometric academic system
           </p>
+
+          {showLocalDemoHint ? (
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              <p className="font-semibold">Local demo login</p>
+              <p className="mt-1">Use `suraj@gmail.com` as student or `pradnya@gmail.com` as coordinator.</p>
+              <p className="mt-1">Password for seeded local users: `Vision@123`</p>
+            </div>
+          ) : null}
 
           <div className="mt-6 flex gap-3">
             <button

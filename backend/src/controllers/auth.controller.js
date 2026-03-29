@@ -376,12 +376,12 @@ const login = async (req, res) => {
     });
 
     if (!user || !user.isActive) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
         message: !user
           ? role === "parent"
             ? "Parent account not found. Register first using the linked parent email."
-            : "User not found"
+            : "Invalid email or password"
           : "User account is inactive"
       });
     }
