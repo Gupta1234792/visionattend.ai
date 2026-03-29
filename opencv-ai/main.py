@@ -7,6 +7,7 @@ load_dotenv()  # .env file se ENV variables load karta hai
 import base64
 import hashlib
 import os
+import re
 import time
 
 import cv2
@@ -28,7 +29,7 @@ MIN_IMAGE_WIDTH          = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
 MIN_IMAGE_HEIGHT         = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
 MIN_BRIGHTNESS           = float(os.getenv("MIN_BRIGHTNESS", "45"))
 MIN_LAPLACIAN_VAR        = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
-MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.08"))
+MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.05"))  # FIX: 0.08 → 0.05 (loose)
 
 
 # ─────────────────────────────────────────────
@@ -79,6 +80,7 @@ def error_response(message, status=400, code="UNKNOWN_ERROR", **extra):
 
 # ─────────────────────────────────────────────
 # IMAGE DECODING
+# FIX: base64 whitespace + padding fix added
 # ─────────────────────────────────────────────
 def decode_image_payload(image_value):
     if not image_value or not isinstance(image_value, str):
@@ -86,7 +88,16 @@ def decode_image_payload(image_value):
 
     try:
         encoded = image_value.split(",", 1)[1] if "," in image_value else image_value
-        binary  = base64.b64decode(encoded)
+
+        # FIX 1: Remove all whitespace / newlines (Postman adds these)
+        encoded = re.sub(r'\s+', '', encoded)
+
+        # FIX 2: Add missing base64 padding
+        missing_padding = len(encoded) % 4
+        if missing_padding:
+            encoded += '=' * (4 - missing_padding)
+
+        binary = base64.b64decode(encoded)
     except Exception:
         raise ValueError("Invalid image encoding")
 
@@ -149,7 +160,7 @@ def preprocess(frame):
     new_h   = int(h * scale)
     resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-    canvas           = np.zeros((640, 640, 3), dtype=np.uint8)
+    canvas             = np.zeros((640, 640, 3), dtype=np.uint8)
     canvas[:new_h, :new_w] = resized
 
     return canvas
@@ -162,6 +173,11 @@ def extract_single_face(frame):
     model = get_model()
 
     print("[DEBUG] Original frame shape:", frame.shape)
+
+    # FIX 3: Debug pixel stats — helps detect corrupt/black images
+    print("[DEBUG] Frame stats: shape=%s min=%d max=%d mean=%.1f" % (
+        frame.shape, frame.min(), frame.max(), frame.mean()
+    ))
 
     # Preprocess: aspect-ratio preserving → 640x640 canvas
     processed = preprocess(frame)
@@ -207,12 +223,12 @@ def build_embedding_hash(embedding):
 # REGISTRATION SCORING
 # ─────────────────────────────────────────────
 def registration_quality(face, frame):
-    det_score      = float(getattr(face, "det_score", 0.0))
-    bbox           = np.array(face.bbox).astype(np.float32)
-    width          = max(1.0, float(bbox[2] - bbox[0]))
-    height         = max(1.0, float(bbox[3] - bbox[1]))
+    det_score       = float(getattr(face, "det_score", 0.0))
+    bbox            = np.array(face.bbox).astype(np.float32)
+    width           = max(1.0, float(bbox[2] - bbox[0]))
+    height          = max(1.0, float(bbox[3] - bbox[1]))
     face_area_ratio = min(1.0, (width * height) / (frame.shape[0] * frame.shape[1]))
-    size_score     = min(1.0, face_area_ratio * 8.0)
+    size_score      = min(1.0, face_area_ratio * 8.0)
     return float(round((det_score * 0.7) + (size_score * 0.3), 4))
 
 
@@ -305,8 +321,8 @@ def register_face():
         np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
         axis=0,
     )
-    embedding       = normalize_embedding(embedding)
-    embedding_hash  = build_embedding_hash(embedding)
+    embedding      = normalize_embedding(embedding)
+    embedding_hash = build_embedding_hash(embedding)
 
     is_duplicate, existing_user_id = find_duplicate_face(embedding, user_id)
     if is_duplicate:
@@ -322,9 +338,9 @@ def register_face():
         {"userId": user_id},
         {
             "$set": {
-                "embedding":      embedding.tolist(),
-                "embeddingHash":  embedding_hash,
-                "updatedAt":      now,
+                "embedding":     embedding.tolist(),
+                "embeddingHash": embedding_hash,
+                "updatedAt":     now,
             },
             "$setOnInsert": {
                 "userId":    user_id,
@@ -395,13 +411,13 @@ def verify_face():
     log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=0.45, matched=matched)
 
     return jsonify({
-        "success":       matched,
-        "matched":       matched,
-        "confidence":    float(score),
+        "success":        matched,
+        "matched":        matched,
+        "confidence":     float(score),
         "livenessPassed": True,
-        "blinkDetected": False,
-        "blinkSignals":  [],
-        "message":       "Face matched" if matched else "Face not recognized",
+        "blinkDetected":  False,
+        "blinkSignals":   [],
+        "message":        "Face matched" if matched else "Face not recognized",
     }), (200 if matched else 403)
 
 
