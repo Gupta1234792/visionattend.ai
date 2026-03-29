@@ -6,6 +6,7 @@ const { connectDB } = require("./src/config/db");
 const { Server } = require("socket.io");
 const { initReminderWorkers } = require("./src/jobs/reminders.worker");
 const { checkOpenCvHealth } = require("./src/startup/opencv");
+const { ensureDemoUsers } = require("./src/startup/demoUsers");
 const { loadFaceCache } = require("./src/utils/faceCache");
 const AttendanceSession = require("./src/models/AttendanceSession.model");
 const AttendanceRecord = require("./src/models/AttendanceRecord.model");
@@ -45,6 +46,7 @@ require("./src/sockets/socket")(io);
 const startServer = async () => {
   try {
     await connectDB();
+    await ensureDemoUsers();
     await loadFaceCache();
     await AttendanceSession.collection.createIndex({ createdAt: 1, subject: 1 }).catch(() => null);
     await AttendanceRecord.collection.createIndex({ session: 1, student: 1 }).catch(() => null);
