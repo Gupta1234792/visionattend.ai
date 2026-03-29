@@ -1,9 +1,8 @@
-from dotenv import load_dotenv
 import base64
 import hashlib
 import os
 import time
-load_dotenv()
+
 import cv2
 import numpy as np
 from flask import Flask, jsonify, request
@@ -14,8 +13,7 @@ from utils.mongo import faces as faces_col
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.getenv("OPENCV_API_KEY", "").strip()
-print("LOADED KEY:", repr(API_KEY))
+API_KEY = os.getenv("OPENCV_API_KEY", "")
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.50"))
 DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
 MIN_IMAGE_WIDTH = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
@@ -45,10 +43,9 @@ def get_model():
 # AUTH
 # ─────────────────────────────────────────────
 def ensure_api_key():
-    key = request.headers.get("x-opencv-key", "").strip()
     if API_KEY:
+        key = request.headers.get("x-opencv-key")
         if key != API_KEY:
-            print("KEY MISMATCH:", repr(key), repr(API_KEY))
             return False
     return True
 
