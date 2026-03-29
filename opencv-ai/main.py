@@ -2,7 +2,7 @@
 # DOTENV — SABSE PEHLE LOAD KARO (CRITICAL)
 # ─────────────────────────────────────────────
 from dotenv import load_dotenv
-load_dotenv()  # .env file se ENV variables load karta hai
+load_dotenv()
 
 import base64
 import hashlib
@@ -21,7 +21,7 @@ app = Flask(__name__)
 CORS(app)
 
 API_KEY = os.getenv("OPENCV_API_KEY", "").strip()
-print("[STARTUP] LOADED API_KEY:", repr(API_KEY))  # debug — startup pe check karo
+print("[STARTUP] LOADED API_KEY:", repr(API_KEY))
 
 MATCH_THRESHOLD          = float(os.getenv("MATCH_THRESHOLD", "0.50"))
 DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
@@ -29,7 +29,7 @@ MIN_IMAGE_WIDTH          = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
 MIN_IMAGE_HEIGHT         = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
 MIN_BRIGHTNESS           = float(os.getenv("MIN_BRIGHTNESS", "45"))
 MIN_LAPLACIAN_VAR        = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
-MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.05"))  # FIX: 0.08 → 0.05 (loose)
+MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.05"))
 
 
 # ─────────────────────────────────────────────
@@ -80,7 +80,8 @@ def error_response(message, status=400, code="UNKNOWN_ERROR", **extra):
 
 # ─────────────────────────────────────────────
 # IMAGE DECODING
-# FIX: base64 whitespace + padding fix added
+# FIX 1: base64 whitespace + padding fix
+# FIX 2: BGR → RGB conversion (InsightFace needs RGB)
 # ─────────────────────────────────────────────
 def decode_image_payload(image_value):
     if not image_value or not isinstance(image_value, str):
@@ -89,10 +90,10 @@ def decode_image_payload(image_value):
     try:
         encoded = image_value.split(",", 1)[1] if "," in image_value else image_value
 
-        # FIX 1: Remove all whitespace / newlines (Postman adds these)
+        # Remove all whitespace/newlines (Postman adds these)
         encoded = re.sub(r'\s+', '', encoded)
 
-        # FIX 2: Add missing base64 padding
+        # Fix missing base64 padding
         missing_padding = len(encoded) % 4
         if missing_padding:
             encoded += '=' * (4 - missing_padding)
@@ -107,6 +108,9 @@ def decode_image_payload(image_value):
     frame = cv2.imdecode(np.frombuffer(binary, np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         raise ValueError("Corrupted image")
+
+    # 🔥 CRITICAL FIX: OpenCV loads BGR, InsightFace needs RGB
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     return frame
 
@@ -129,13 +133,15 @@ def decode_frame_sequence(frames_value, image_value=None):
 
 # ─────────────────────────────────────────────
 # IMAGE QUALITY CHECK
+# Note: frame is now RGB — adjust cvtColor accordingly
 # ─────────────────────────────────────────────
 def basic_image_quality(frame):
     height, width = frame.shape[:2]
     if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
         return False, "Low quality image", "LOW_RESOLUTION"
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Frame is RGB now, convert to gray correctly
+    gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
     brightness = float(np.mean(gray))
     if brightness < MIN_BRIGHTNESS:
@@ -150,8 +156,7 @@ def basic_image_quality(frame):
 
 # ─────────────────────────────────────────────
 # PREPROCESS — aspect-ratio preserving resize
-# InsightFace ko clean 640x640 input chahiye
-# distortion avoid karne ke liye letterbox approach
+# Letterbox to 640x640 — no distortion
 # ─────────────────────────────────────────────
 def preprocess(frame):
     h, w    = frame.shape[:2]
@@ -172,16 +177,14 @@ def preprocess(frame):
 def extract_single_face(frame):
     model = get_model()
 
-    print("[DEBUG] Original frame shape:", frame.shape)
-
-    # FIX 3: Debug pixel stats — helps detect corrupt/black images
-    print("[DEBUG] Frame stats: shape=%s min=%d max=%d mean=%.1f" % (
-        frame.shape, frame.min(), frame.max(), frame.mean()
+    print("[DEBUG] Frame shape:", frame.shape)
+    print("[DEBUG] Frame stats: min=%d max=%d mean=%.1f" % (
+        frame.min(), frame.max(), frame.mean()
     ))
 
-    # Preprocess: aspect-ratio preserving → 640x640 canvas
+    # Letterbox resize to 640x640
     processed = preprocess(frame)
-    print("[DEBUG] Preprocessed frame shape:", processed.shape)
+    print("[DEBUG] Preprocessed shape:", processed.shape)
 
     try:
         faces = model.get(processed)
