@@ -55,7 +55,9 @@ const startServer = async () => {
     require("./src/cron/attendance.cron");
     require("./src/cron/retention.cron");
     require("./src/cron/lectureAutoSession.cron");
-    initReminderWorkers();
+  if (process.env.REDIS_HOST) {
+  initReminderWorkers();
+}
 
     server.listen(PORT, async () => {
       console.log(`VisionAttend backend + sockets running on port ${PORT}`);
