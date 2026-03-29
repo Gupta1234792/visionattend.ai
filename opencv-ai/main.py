@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────
+# DOTENV — SABSE PEHLE LOAD KARO (CRITICAL)
+# ─────────────────────────────────────────────
+from dotenv import load_dotenv
+load_dotenv()  # .env file se ENV variables load karta hai
+
 import base64
 import hashlib
 import os
@@ -13,7 +19,9 @@ from utils.mongo import faces as faces_col
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = os.getenv("OPENCV_API_KEY", "")
+API_KEY = os.getenv("OPENCV_API_KEY", "").strip()
+print("[STARTUP] LOADED API_KEY:", repr(API_KEY))  # debug — startup pe check karo
+
 MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.50"))
 DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
 MIN_IMAGE_WIDTH = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
@@ -21,6 +29,7 @@ MIN_IMAGE_HEIGHT = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
 MIN_BRIGHTNESS = float(os.getenv("MIN_BRIGHTNESS", "45"))
 MIN_LAPLACIAN_VAR = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
 MIN_FACE_AREA_RATIO = float(os.getenv("MIN_FACE_AREA_RATIO", "0.08"))
+
 
 # ─────────────────────────────────────────────
 # MODEL — singleton, loaded once at startup
@@ -44,8 +53,9 @@ def get_model():
 # ─────────────────────────────────────────────
 def ensure_api_key():
     if API_KEY:
-        key = request.headers.get("x-opencv-key")
+        key = request.headers.get("x-opencv-key", "").strip()
         if key != API_KEY:
+            print(f"[AUTH] KEY MISMATCH — received: {repr(key)} | expected: {repr(API_KEY)}")
             return False
     return True
 
@@ -132,13 +142,12 @@ def basic_image_quality(frame):
 # ─────────────────────────────────────────────
 def extract_single_face(frame):
     """
-    FIX: Removed generate_detection_variants loop.
-    Old code ran 4–5 model.get() calls per image → 3 min delay.
-    Now: 1 resize + 1 detection = 5–10× faster.
+    Removed generate_detection_variants loop.
+    Old: 4-5 model.get() calls per image = 3 min delay
+    New: 1 resize + 1 detection = 5-10x faster
     """
     model = get_model()
 
-    # Resize to 640×640 — matches det_size, avoids internal rescale overhead
     resized = cv2.resize(frame, (640, 640), interpolation=cv2.INTER_LINEAR)
 
     try:
@@ -270,11 +279,9 @@ def register_face():
         log_event("REGISTER_FAIL", userId=user_id, reason=failure_message)
         return error_response(failure_message, 400, code="NO_FACE_DETECTED")
 
-    # Clamp confidence to minimum 0.8 (quality checks skipped intentionally)
     confidence = float(round(sum(confidences) / len(confidences), 4))
     confidence = max(confidence, 0.8)
 
-    # Average embeddings from all frames
     embedding = np.mean(
         np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
         axis=0,
