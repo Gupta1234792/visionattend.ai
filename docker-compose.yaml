@@ -31,7 +31,7 @@ services:
     environment:
       PORT: 10000
       MONGO_URI: mongodb://mongo:27017/visionattend
-      OPENCV_API_KEY: visionattend123
+      OPENCV_API_KEY: visionattend-opencv-2026secure   # ← FIXED: backend se match
       MONGO_CONNECT_RETRIES: 20
       MONGO_CONNECT_DELAY_MS: 2000
     depends_on:
@@ -63,7 +63,7 @@ services:
       FRONTEND_URLS: http://localhost:3000,http://127.0.0.1:3000
       OPENCV_VERIFY_URL: http://opencv-ai:10000/verify
       OPENCV_REGISTER_URL: http://opencv-ai:10000/register
-      OPENCV_API_KEY: visionattend123
+      OPENCV_API_KEY: visionattend-opencv-2026secure   # ← FIXED: opencv-ai se match
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DEV_MODE: "false"
@@ -87,7 +87,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://backend:5000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:5000   # ← FIXED: browser ke liye localhost
+      NEXT_PUBLIC_SOCKET_URL: http://localhost:5000     # ← ADDED: socket bhi localhost chahiye
       NEXT_PUBLIC_DEV_BYPASS: "false"
       NEXT_PUBLIC_DEV_MODE: "false"
     depends_on:
