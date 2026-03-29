@@ -22,13 +22,13 @@ CORS(app)
 API_KEY = os.getenv("OPENCV_API_KEY", "").strip()
 print("[STARTUP] LOADED API_KEY:", repr(API_KEY))  # debug — startup pe check karo
 
-MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.50"))
+MATCH_THRESHOLD          = float(os.getenv("MATCH_THRESHOLD", "0.50"))
 DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
-MIN_IMAGE_WIDTH = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
-MIN_IMAGE_HEIGHT = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
-MIN_BRIGHTNESS = float(os.getenv("MIN_BRIGHTNESS", "45"))
-MIN_LAPLACIAN_VAR = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
-MIN_FACE_AREA_RATIO = float(os.getenv("MIN_FACE_AREA_RATIO", "0.08"))
+MIN_IMAGE_WIDTH          = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
+MIN_IMAGE_HEIGHT         = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
+MIN_BRIGHTNESS           = float(os.getenv("MIN_BRIGHTNESS", "45"))
+MIN_LAPLACIAN_VAR        = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
+MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.08"))
 
 
 # ─────────────────────────────────────────────
@@ -86,7 +86,7 @@ def decode_image_payload(image_value):
 
     try:
         encoded = image_value.split(",", 1)[1] if "," in image_value else image_value
-        binary = base64.b64decode(encoded)
+        binary  = base64.b64decode(encoded)
     except Exception:
         raise ValueError("Invalid image encoding")
 
@@ -138,43 +138,45 @@ def basic_image_quality(frame):
 
 
 # ─────────────────────────────────────────────
-# FACE DETECTION — single pass, no variants loop
+# PREPROCESS — aspect-ratio preserving resize
+# InsightFace ko clean 640x640 input chahiye
+# distortion avoid karne ke liye letterbox approach
+# ─────────────────────────────────────────────
+def preprocess(frame):
+    h, w    = frame.shape[:2]
+    scale   = 640 / max(h, w)
+    new_w   = int(w * scale)
+    new_h   = int(h * scale)
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    canvas           = np.zeros((640, 640, 3), dtype=np.uint8)
+    canvas[:new_h, :new_w] = resized
+
+    return canvas
+
+
+# ─────────────────────────────────────────────
+# FACE DETECTION — single clean pass
 # ─────────────────────────────────────────────
 def extract_single_face(frame):
     model = get_model()
 
-    try:
-        # ✅ ORIGINAL IMAGE USE KARO (NO DISTORTION)
-        faces = model.get(frame)
+    print("[DEBUG] Original frame shape:", frame.shape)
 
+    # Preprocess: aspect-ratio preserving → 640x640 canvas
+    processed = preprocess(frame)
+    print("[DEBUG] Preprocessed frame shape:", processed.shape)
+
+    try:
+        faces = model.get(processed)
+        print("[DEBUG] Faces found:", len(faces))
     except Exception as e:
-        print("[ERROR] Face detection failed:", str(e))
+        print("[CRASH] InsightFace:", str(e))
         return None, "Face detection error"
 
     if not faces:
         return None, "No face detected"
 
-    if len(faces) > 1:
-        return None, "Multiple faces detected"
-
-    return faces[0], None
-    """
-    Removed generate_detection_variants loop.
-    Old: 4-5 model.get() calls per image = 3 min delay
-    New: 1 resize + 1 detection = 5-10x faster
-    """
-    model = get_model()
-
-    resized = cv2.resize(frame, (640, 640), interpolation=cv2.INTER_LINEAR)
-
-    try:
-        faces = model.get(resized)
-    except Exception as e:
-        print("[ERROR] Face detection failed:", str(e))
-        return None, "Face detection error"
-
-    if not faces:
-        return None, "No face detected"
     if len(faces) > 1:
         return None, "Multiple faces detected"
 
@@ -185,7 +187,7 @@ def extract_single_face(frame):
 # EMBEDDING UTILS
 # ─────────────────────────────────────────────
 def normalize_embedding(embedding):
-    emb = np.array(embedding, dtype=np.float32)
+    emb  = np.array(embedding, dtype=np.float32)
     norm = np.linalg.norm(emb)
     if norm == 0:
         return emb
@@ -205,20 +207,20 @@ def build_embedding_hash(embedding):
 # REGISTRATION SCORING
 # ─────────────────────────────────────────────
 def registration_quality(face, frame):
-    det_score = float(getattr(face, "det_score", 0.0))
-    bbox = np.array(face.bbox).astype(np.float32)
-    width = max(1.0, float(bbox[2] - bbox[0]))
-    height = max(1.0, float(bbox[3] - bbox[1]))
+    det_score      = float(getattr(face, "det_score", 0.0))
+    bbox           = np.array(face.bbox).astype(np.float32)
+    width          = max(1.0, float(bbox[2] - bbox[0]))
+    height         = max(1.0, float(bbox[3] - bbox[1]))
     face_area_ratio = min(1.0, (width * height) / (frame.shape[0] * frame.shape[1]))
-    size_score = min(1.0, face_area_ratio * 8.0)
+    size_score     = min(1.0, face_area_ratio * 8.0)
     return float(round((det_score * 0.7) + (size_score * 0.3), 4))
 
 
 def face_is_too_small(face, frame):
-    bbox = np.array(face.bbox).astype(np.float32)
-    width = max(1.0, float(bbox[2] - bbox[0]))
+    bbox   = np.array(face.bbox).astype(np.float32)
+    width  = max(1.0, float(bbox[2] - bbox[0]))
     height = max(1.0, float(bbox[3] - bbox[1]))
-    ratio = (width * height) / (frame.shape[0] * frame.shape[1])
+    ratio  = (width * height) / (frame.shape[0] * frame.shape[1])
     return ratio < MIN_FACE_AREA_RATIO
 
 
@@ -257,9 +259,9 @@ def register_face():
     if not ensure_api_key():
         return error_response("Invalid OpenCV key", 403, code="INVALID_API_KEY")
 
-    data = request.get_json(silent=True) or {}
-    user_id = str(data.get("userId", "")).strip()
-    image = data.get("image")
+    data         = request.get_json(silent=True) or {}
+    user_id      = str(data.get("userId", "")).strip()
+    image        = data.get("image")
     frames_value = data.get("frames")
 
     if not user_id:
@@ -272,9 +274,9 @@ def register_face():
     except ValueError as error:
         return error_response(str(error), 400, code="INVALID_IMAGE")
 
-    faces = []
+    faces       = []
     confidences = []
-    errors = []
+    errors      = []
 
     for frame in frames:
         try:
@@ -303,8 +305,8 @@ def register_face():
         np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
         axis=0,
     )
-    embedding = normalize_embedding(embedding)
-    embedding_hash = build_embedding_hash(embedding)
+    embedding       = normalize_embedding(embedding)
+    embedding_hash  = build_embedding_hash(embedding)
 
     is_duplicate, existing_user_id = find_duplicate_face(embedding, user_id)
     if is_duplicate:
@@ -320,12 +322,12 @@ def register_face():
         {"userId": user_id},
         {
             "$set": {
-                "embedding": embedding.tolist(),
-                "embeddingHash": embedding_hash,
-                "updatedAt": now,
+                "embedding":      embedding.tolist(),
+                "embeddingHash":  embedding_hash,
+                "updatedAt":      now,
             },
             "$setOnInsert": {
-                "userId": user_id,
+                "userId":    user_id,
                 "createdAt": now,
             },
         },
@@ -335,9 +337,9 @@ def register_face():
     log_event("REGISTER_SUCCESS", userId=user_id, confidence=confidence)
 
     return jsonify({
-        "success": True,
+        "success":    True,
         "confidence": confidence,
-        "message": "Face registered"
+        "message":    "Face registered"
     })
 
 
@@ -346,9 +348,9 @@ def verify_face():
     if not ensure_api_key():
         return error_response("Invalid OpenCV key", 403, code="INVALID_API_KEY")
 
-    data = request.get_json(silent=True) or {}
-    user_id = str(data.get("userId", "")).strip()
-    image = data.get("image")
+    data         = request.get_json(silent=True) or {}
+    user_id      = str(data.get("userId", "")).strip()
+    image        = data.get("image")
     frames_value = data.get("frames")
 
     if not user_id:
@@ -383,23 +385,23 @@ def verify_face():
 
     stored_embedding = normalize_embedding(stored["embedding"])
 
-    scores = [
+    scores  = [
         cosine_similarity(normalize_embedding(face.embedding), stored_embedding)
         for face in faces
     ]
-    score = max(scores)
+    score   = max(scores)
     matched = score >= 0.45
 
     log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=0.45, matched=matched)
 
     return jsonify({
-        "success": matched,
-        "matched": matched,
-        "confidence": float(score),
+        "success":       matched,
+        "matched":       matched,
+        "confidence":    float(score),
         "livenessPassed": True,
         "blinkDetected": False,
-        "blinkSignals": [],
-        "message": "Face matched" if matched else "Face not recognized",
+        "blinkSignals":  [],
+        "message":       "Face matched" if matched else "Face not recognized",
     }), (200 if matched else 403)
 
 
