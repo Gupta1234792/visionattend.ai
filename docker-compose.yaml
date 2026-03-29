@@ -1,3 +1,5 @@
+name: visionattend
+
 services:
   mongo:
     image: mongo:7
@@ -22,12 +24,16 @@ services:
 
   opencv-ai:
     build: ./opencv-ai
+    restart: unless-stopped
+    networks: [visionattend_net]
     ports:
       - "10000:10000"
     environment:
       PORT: 10000
       MONGO_URI: mongodb://mongo:27017/visionattend
       OPENCV_API_KEY: visionattend123
+      MONGO_CONNECT_RETRIES: 20
+      MONGO_CONNECT_DELAY_MS: 2000
     depends_on:
       - mongo
     healthcheck:
