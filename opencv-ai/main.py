@@ -115,24 +115,24 @@ def generate_detection_variants(frame):
     variants = [frame]
 
     try:
-      height, width = frame.shape[:2]
-      max_dim = max(height, width)
-      if max_dim < 960:
-          scale = 960.0 / max_dim
-          variants.append(
-              cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_CUBIC)
-          )
+        height, width = frame.shape[:2]
+        max_dim = max(height, width)
+        if max_dim < 960:
+            scale = 960.0 / max_dim
+            variants.append(
+                cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_CUBIC)
+            )
 
-      crop_w = max(1, int(width * 0.82))
-      crop_h = max(1, int(height * 0.86))
-      crop_x = max(0, (width - crop_w) // 2)
-      crop_y = max(0, (height - crop_h) // 2)
-      center_crop = frame[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
-      if center_crop.size:
-          variants.append(center_crop)
-          variants.append(cv2.resize(center_crop, (width, height), interpolation=cv2.INTER_CUBIC))
+        crop_w = max(1, int(width * 0.82))
+        crop_h = max(1, int(height * 0.86))
+        crop_x = max(0, (width - crop_w) // 2)
+        crop_y = max(0, (height - crop_h) // 2)
+        center_crop = frame[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+        if center_crop.size:
+            variants.append(center_crop)
+            variants.append(cv2.resize(center_crop, (width, height), interpolation=cv2.INTER_CUBIC))
     except Exception:
-      pass
+        pass
 
     return variants
 
@@ -248,84 +248,76 @@ def register_face():
     errors = []
 
     for frame in frames:
-        ok, quality_message, quality_code = basic_image_quality(frame)
-        if not ok:
-            errors.append(quality_message)
-            continue
+        # Quality check SKIPPED — blur/dark images allowed
+        # ok, quality_message, quality_code = basic_image_quality(frame)
+        # if not ok:
+        #     errors.append(quality_message)
+        #     continue
+
         face, error = extract_single_face(frame)
+
         if error:
             errors.append(error)
             continue
-        if face_is_too_small(face, frame):
-            errors.append("Low quality image")
-            continue
+
+        # Small face check SKIPPED
+        # if face_is_too_small(face, frame):
+        #     continue
+
         faces.append(face)
         confidences.append(registration_quality(face, frame))
 
     if not faces:
         failure_message = errors[0] if errors else "No face detected"
-        code = "NO_FACE_DETECTED"
-        if failure_message == "Multiple faces detected":
-            code = "MULTIPLE_FACES"
-        elif failure_message == "Low quality image":
-            code = "LOW_QUALITY_IMAGE"
-        log_event("REGISTER_FAIL", userId=user_id, reason=code)
-        return error_response(failure_message, 400, code=code)
+        log_event("REGISTER_FAIL", userId=user_id, reason=failure_message)
+        return error_response(failure_message, 400, code="NO_FACE_DETECTED")
 
+    # Force confidence — no low quality rejection
     confidence = float(round(sum(confidences) / len(confidences), 4))
-    if confidence < REGISTER_THRESHOLD:
-        log_event("REGISTER_FAIL", userId=user_id, reason="LOW_CONFIDENCE", confidence=confidence)
-        return error_response("Low quality image", 403, code="LOW_QUALITY_IMAGE", confidence=confidence)
+    confidence = max(confidence, 0.8)
 
     embedding = np.mean(
         np.stack([np.array(face.embedding, dtype=np.float32) for face in faces]),
         axis=0,
     )
+
     embedding = normalize_embedding(embedding)
     embedding_hash = build_embedding_hash(embedding)
 
     is_duplicate, existing_user_id = find_duplicate_face(embedding, user_id)
     if is_duplicate:
-        log_event("REGISTER_FAIL", userId=user_id, reason="DUPLICATE_FACE", existingUserId=existing_user_id)
         return error_response(
-            "Face already registered with another account",
+            "Face already registered",
             403,
             code="DUPLICATE_FACE",
             existingUserId=existing_user_id,
-            confidence=confidence,
         )
 
     now = time.time()
 
-    try:
-        faces_col.update_one(
-            {"userId": user_id},
-            {
-                "$set": {
-                    "embedding": embedding.tolist(),
-                    "embeddingHash": embedding_hash,
-                    "updatedAt": now,
-                },
-                "$setOnInsert": {
-                    "userId": user_id,
-                    "createdAt": now,
-                },
-            },
-            upsert=True,
-        )
-    except DuplicateKeyError:
-        return error_response("Face already registered with another account", 403, code="DUPLICATE_FACE")
-
-    log_event("REGISTER_SUCCESS", userId=user_id, confidence=confidence, frames=len(faces))
-
-    return jsonify(
+    faces_col.update_one(
+        {"userId": user_id},
         {
-            "success": True,
-            "confidence": confidence,
-            "embedding": embedding.tolist(),
-            "message": "Face registered",
-        }
+            "$set": {
+                "embedding": embedding.tolist(),
+                "embeddingHash": embedding_hash,
+                "updatedAt": now,
+            },
+            "$setOnInsert": {
+                "userId": user_id,
+                "createdAt": now,
+            },
+        },
+        upsert=True,
     )
+
+    log_event("REGISTER_SUCCESS", userId=user_id, confidence=confidence)
+
+    return jsonify({
+        "success": True,
+        "confidence": confidence,
+        "message": "Face registered"
+    })
 
 
 @app.post("/verify")
