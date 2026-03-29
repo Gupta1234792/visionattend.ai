@@ -141,6 +141,23 @@ def basic_image_quality(frame):
 # FACE DETECTION — single pass, no variants loop
 # ─────────────────────────────────────────────
 def extract_single_face(frame):
+    model = get_model()
+
+    try:
+        # ✅ ORIGINAL IMAGE USE KARO (NO DISTORTION)
+        faces = model.get(frame)
+
+    except Exception as e:
+        print("[ERROR] Face detection failed:", str(e))
+        return None, "Face detection error"
+
+    if not faces:
+        return None, "No face detected"
+
+    if len(faces) > 1:
+        return None, "Multiple faces detected"
+
+    return faces[0], None
     """
     Removed generate_detection_variants loop.
     Old: 4-5 model.get() calls per image = 3 min delay
