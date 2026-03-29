@@ -159,7 +159,11 @@ def extract_single_face(frame):
     multiple_faces = False
 
     for candidate in generate_detection_variants(frame):
-        faces = model.get(candidate)
+        try:
+            faces = model.get(candidate)
+        except Exception as e:
+            print("[ERROR] Face detection failed:", str(e))
+            continue
 
         if not faces:
             continue
@@ -254,7 +258,12 @@ def register_face():
         #     errors.append(quality_message)
         #     continue
 
-        face, error = extract_single_face(frame)
+        try:
+            face, error = extract_single_face(frame)
+        except Exception as e:
+            print("[ERROR] extract_single_face:", str(e))
+            errors.append("Face detection error")
+            continue
 
         if error:
             errors.append(error)
@@ -344,7 +353,11 @@ def verify_face():
     for frame in frames:
         # Quality check SKIPPED — blur/dark allowed (same as register)
         # Small face check SKIPPED
-        face, error = extract_single_face(frame)
+        try:
+            face, error = extract_single_face(frame)
+        except Exception as e:
+            print("[ERROR] verify face:", str(e))
+            continue
         if error:
             continue
         faces.append(face)
