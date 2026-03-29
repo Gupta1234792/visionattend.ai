@@ -365,7 +365,7 @@ def verify_face():
     ]
     score = max(scores)
     matched = score >= 0.45
-    log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=effective_threshold, matched=matched)
+    log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=0.45, matched=matched)
 
     return jsonify(
         {
