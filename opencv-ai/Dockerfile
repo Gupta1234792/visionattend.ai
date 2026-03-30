@@ -2,7 +2,8 @@ FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
-ENV INSIGHTFACE_HOME=/root/.insightface
+# ✅ FIX: Render pe writable path use karo
+ENV INSIGHTFACE_HOME=/app/.insightface
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y \
@@ -24,13 +25,14 @@ RUN pip install --upgrade pip && \
 
 COPY . .
 
-RUN mkdir -p /root/.insightface/models/buffalo_l && \
+# ✅ FIX: /app writable hai — model yahan download karo
+RUN mkdir -p /app/.insightface/models/buffalo_l && \
     wget -q -O /tmp/buffalo_l.zip "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" && \
-    unzip -o /tmp/buffalo_l.zip -d /root/.insightface/models/buffalo_l && \
+    unzip -o /tmp/buffalo_l.zip -d /app/.insightface/models/buffalo_l && \
     rm /tmp/buffalo_l.zip && \
-    ls -la /root/.insightface/models/buffalo_l/
+    ls -la /app/.insightface/models/buffalo_l/
 
-RUN python -c "from insightface.app import FaceAnalysis; m = FaceAnalysis(name='buffalo_l', root='/root/.insightface', providers=['CPUExecutionProvider']); m.prepare(ctx_id=-1, det_size=(640,640)); print('Model OK')"
+RUN python -c "from insightface.app import FaceAnalysis; m = FaceAnalysis(name='buffalo_l', root='/app/.insightface', providers=['CPUExecutionProvider']); m.prepare(ctx_id=-1, det_size=(640,640)); print('Model OK')"
 
 EXPOSE 10000
 
