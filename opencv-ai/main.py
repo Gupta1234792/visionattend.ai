@@ -81,7 +81,7 @@ def error_response(message, status=400, code="UNKNOWN_ERROR", **extra):
 # ─────────────────────────────────────────────
 # IMAGE DECODING
 # FIX 1: base64 whitespace + padding fix
-# FIX 2: BGR → RGB conversion (InsightFace needs RGB)
+# FIX 2: BGR → RGB (InsightFace needs RGB)
 # ─────────────────────────────────────────────
 def decode_image_payload(image_value):
     if not image_value or not isinstance(image_value, str):
@@ -109,7 +109,7 @@ def decode_image_payload(image_value):
     if frame is None:
         raise ValueError("Corrupted image")
 
-    # 🔥 CRITICAL FIX: OpenCV loads BGR, InsightFace needs RGB
+    # 🔥 CRITICAL: OpenCV = BGR, InsightFace = RGB
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     return frame
@@ -133,14 +133,13 @@ def decode_frame_sequence(frames_value, image_value=None):
 
 # ─────────────────────────────────────────────
 # IMAGE QUALITY CHECK
-# Note: frame is now RGB — adjust cvtColor accordingly
+# Frame is RGB here — use COLOR_RGB2GRAY
 # ─────────────────────────────────────────────
 def basic_image_quality(frame):
     height, width = frame.shape[:2]
     if width < MIN_IMAGE_WIDTH or height < MIN_IMAGE_HEIGHT:
         return False, "Low quality image", "LOW_RESOLUTION"
 
-    # Frame is RGB now, convert to gray correctly
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
     brightness = float(np.mean(gray))
@@ -155,24 +154,9 @@ def basic_image_quality(frame):
 
 
 # ─────────────────────────────────────────────
-# PREPROCESS — aspect-ratio preserving resize
-# Letterbox to 640x640 — no distortion
-# ─────────────────────────────────────────────
-def preprocess(frame):
-    h, w    = frame.shape[:2]
-    scale   = 640 / max(h, w)
-    new_w   = int(w * scale)
-    new_h   = int(h * scale)
-    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-    canvas             = np.zeros((640, 640, 3), dtype=np.uint8)
-    canvas[:new_h, :new_w] = resized
-
-    return canvas
-
-
-# ─────────────────────────────────────────────
-# FACE DETECTION — single clean pass
+# FACE DETECTION
+# FIX: NO preprocess() — InsightFace handles resize itself
+# Direct frame pass → best detection accuracy
 # ─────────────────────────────────────────────
 def extract_single_face(frame):
     model = get_model()
@@ -182,12 +166,9 @@ def extract_single_face(frame):
         frame.min(), frame.max(), frame.mean()
     ))
 
-    # Letterbox resize to 640x640
-    processed = preprocess(frame)
-    print("[DEBUG] Preprocessed shape:", processed.shape)
-
     try:
-        faces = model.get(processed)
+        # 🔥 DIRECT CALL — no manual preprocess, InsightFace does it internally
+        faces = model.get(frame)
         print("[DEBUG] Faces found:", len(faces))
     except Exception as e:
         print("[CRASH] InsightFace:", str(e))
