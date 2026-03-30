@@ -31,11 +31,14 @@ services:
 
     # ✅ CHANGE 1: env_file use karo
     env_file:
-      - ./opencv-ai/.env
+      - ./opencv-ai/.env.docker
 
     environment:
       PORT: 10000
       OPENCV_API_KEY: visionattend-opencv-2026secure
+      MONGO_URI: mongodb://mongo:27017/visionattend
+      MONGO_DB_NAME: visionattend
+      INSIGHTFACE_HOME: /app/.insightface
       MONGO_CONNECT_RETRIES: 20
       MONGO_CONNECT_DELAY_MS: 2000
 
@@ -58,11 +61,12 @@ services:
 
     # ✅ CHANGE 2: env_file use karo
     env_file:
-      - ./backend/.env
+      - ./backend/.env.docker
 
     environment:
       PORT: 5000
       JWT_SECRET: visionattend-dev-secret
+      MONGO_URI: mongodb://mongo:27017/visionattend
       FRONTEND_URL: http://localhost:3000
       FRONTEND_URLS: http://localhost:3000,http://127.0.0.1:3000
       OPENCV_VERIFY_URL: http://opencv-ai:10000/verify
@@ -76,9 +80,12 @@ services:
       DEMO_USER_PASSWORD: Vision@123
 
     depends_on:
-      - mongo
-      - redis
-      - opencv-ai
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      opencv-ai:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
