@@ -6,6 +6,7 @@ const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { updateFaceCache } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
+
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.2;
 const DEV_MODE = process.env.DEV_MODE === "true";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -71,26 +72,16 @@ const registerStudent = async (req, res) => {
     const normalizedCode = String(inviteCode || "").trim().toUpperCase();
 
     if (!normalizedToken) {
-      return res.status(400).json({
-        success: false,
-        message: "Invite token is required"
-      });
+      return res.status(400).json({ success: false, message: "Invite token is required" });
     }
 
     const invite = await StudentInvite.findOne({ token: normalizedToken });
-
     if (!invite) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid invite token"
-      });
+      return res.status(400).json({ success: false, message: "Invalid invite token" });
     }
 
     if (invite.expiresAt < new Date()) {
-      return res.status(410).json({
-        success: false,
-        message: "Invite link expired"
-      });
+      return res.status(410).json({ success: false, message: "Invite link expired" });
     }
 
     if (!invite.isActive) {
@@ -126,17 +117,11 @@ const registerStudent = async (req, res) => {
     }
 
     if (!EMAIL_PATTERN.test(finalEmail)) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid student email"
-      });
+      return res.status(400).json({ success: false, message: "Enter a valid student email" });
     }
 
     if (finalParentEmail && !EMAIL_PATTERN.test(finalParentEmail)) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid parent email"
-      });
+      return res.status(400).json({ success: false, message: "Enter a valid parent email" });
     }
 
     if (finalPassword.length < 6) {
@@ -194,17 +179,14 @@ const registerStudent = async (req, res) => {
     } catch (createError) {
       if (createError?.code === 11000) {
         const duplicateField = Object.keys(createError.keyPattern || {})[0] || "field";
-        const duplicateMessage = duplicateField === "email"
-          ? "Student already registered. Please login."
-          : duplicateField === "rollNo"
+        const duplicateMessage =
+          duplicateField === "email"
+            ? "Student already registered. Please login."
+            : duplicateField === "rollNo"
             ? "Roll number already exists in this class"
             : "Student already exists";
-        return res.status(409).json({
-          success: false,
-          message: duplicateMessage
-        });
+        return res.status(409).json({ success: false, message: duplicateMessage });
       }
-
       if (createError?.name === "ValidationError") {
         const firstMessage = Object.values(createError.errors || {})[0]?.message;
         return res.status(400).json({
@@ -212,14 +194,10 @@ const registerStudent = async (req, res) => {
           message: firstMessage || "Invalid student details"
         });
       }
-
       throw createError;
     }
 
-    const authToken = generateToken({
-      userId: student._id,
-      role: student.role
-    });
+    const authToken = generateToken({ userId: student._id, role: student.role });
 
     setImmediate(() => {
       Promise.allSettled([
@@ -236,12 +214,7 @@ const registerStudent = async (req, res) => {
             }
           }
         ),
-        sendCredentialsEmail({
-          name: finalName,
-          email: finalEmail,
-          password: finalPassword,
-          role: "student"
-        })
+        sendCredentialsEmail({ name: finalName, email: finalEmail, password: finalPassword, role: "student" })
       ]).catch((error) => {
         console.error("Post-registration async task error:", error);
       });
@@ -275,20 +248,16 @@ const registerStudent = async (req, res) => {
     });
   } catch (error) {
     console.error("Student registration error:", error);
-
     if (error?.code === 11000) {
       const duplicateField = Object.keys(error.keyPattern || {})[0] || "field";
-      const duplicateMessage = duplicateField === "email"
-        ? "Student already registered. Please login."
-        : duplicateField === "rollNo"
+      const duplicateMessage =
+        duplicateField === "email"
+          ? "Student already registered. Please login."
+          : duplicateField === "rollNo"
           ? "Roll number already exists in this class"
           : "Student already exists";
-      return res.status(409).json({
-        success: false,
-        message: duplicateMessage
-      });
+      return res.status(409).json({ success: false, message: duplicateMessage });
     }
-
     return res.status(500).json({
       success: false,
       message: error?.message || "Failed to register student"
@@ -305,13 +274,10 @@ const getStudentProfile = async (req, res) => {
       .populate("department", "name code");
 
     if (!student || student.role !== "student") {
-      return res.status(404).json({
-        success: false,
-        message: "Student not found"
-      });
+      return res.status(404).json({ success: false, message: "Student not found" });
     }
 
-    // DEV_MODE: Skip face registration check
+    // DEV_MODE: skip face registration check
     if (DEV_MODE) {
       return res.status(200).json({
         success: true,
@@ -324,29 +290,21 @@ const getStudentProfile = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      student
-    });
+    return res.status(200).json({ success: true, student });
   } catch (error) {
     console.error("Get student profile error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch student profile"
-    });
+    return res.status(500).json({ success: false, message: "Failed to fetch student profile" });
   }
 };
 
+// ================= RESOLVE INVITE CODE =================
 const resolveInviteCode = async (req, res) => {
   try {
     const { code } = req.params;
     const normalizedCode = String(code || "").trim();
 
     if (!normalizedCode) {
-      return res.status(400).json({
-        success: false,
-        message: "Invite code is required"
-      });
+      return res.status(400).json({ success: false, message: "Invite code is required" });
     }
 
     let invite = await StudentInvite.findOne({ inviteCode: normalizedCode.toUpperCase() });
@@ -354,10 +312,7 @@ const resolveInviteCode = async (req, res) => {
       invite = await StudentInvite.findOne({ token: normalizedCode.toLowerCase() });
     }
     if (!invite || !invite.isActive || invite.expiresAt < new Date()) {
-      return res.status(404).json({
-        success: false,
-        message: "Invalid or expired invite code"
-      });
+      return res.status(404).json({ success: false, message: "Invalid or expired invite code" });
     }
 
     return res.status(200).json({
@@ -367,59 +322,49 @@ const resolveInviteCode = async (req, res) => {
     });
   } catch (error) {
     console.error("Resolve invite code error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to resolve invite code"
-    });
+    return res.status(500).json({ success: false, message: "Failed to resolve invite code" });
   }
 };
 
+// ================= REGISTER STUDENT FACE =================
 const registerStudentFace = async (req, res) => {
   try {
     const { image, frames } = req.body;
+
+    // ✅ FIX 1: Valid frames filter
     const validFrames = Array.isArray(frames)
-      ? frames.filter((frame) => typeof frame === "string" && frame.startsWith("data:image/"))
+      ? frames.filter((f) => typeof f === "string" && f.startsWith("data:image/"))
       : [];
-    const primaryImage = typeof image === "string" && image.startsWith("data:image/")
-      ? image
-      : validFrames[0] || "";
 
-   if (!primaryImage && validFrames.length === 0) {
-  return res.status(400).json({
-    success: false,
-    message: "Face image is required",
-    code: "MISSING_IMAGE"
-  });
-}
+    const primaryImage =
+      typeof image === "string" && image.startsWith("data:image/")
+        ? image
+        : validFrames[0] || "";
 
-    if (validFrames.length < 1) {
+    // ✅ FIX 2: At least one frame OR image required
+    if (!primaryImage && validFrames.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "At least one registration frame is required",
-        code: "EMPTY_FRAMES"
+        message: "Face image is required",
+        code: "MISSING_IMAGE"
       });
     }
 
+    // ✅ FIX 3: Relaxed image size check (5KB instead of 12KB)
     const parts = primaryImage.split(",");
-    if (parts.length !== 2 || !parts[1]) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid image payload",
-        code: "INVALID_IMAGE"
-      });
-    }
-
-    const approxBytes = Math.floor((parts[1].length * 3) / 4);
-    if (approxBytes < 12000) {
-      return res.status(400).json({
-        success: false,
-        message: "Image too small. Capture a clear face frame.",
-        code: "LOW_QUALITY_IMAGE"
-      });
+    if (parts.length === 2 && parts[1]) {
+      const approxBytes = Math.floor((parts[1].length * 3) / 4);
+      console.log("[face-register] Image size approx bytes:", approxBytes);
+      if (approxBytes < 5000) {
+        return res.status(400).json({
+          success: false,
+          message: "Image too small. Capture a clear face frame close to the camera.",
+          code: "LOW_QUALITY_IMAGE"
+        });
+      }
     }
 
     const student = await User.findById(req.user._id);
-
     if (!student || student.role !== "student") {
       return res.status(404).json({
         success: false,
@@ -428,11 +373,11 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    // DEV MODE
+    // ✅ DEV_MODE: bypass opencv entirely
     if (DEV_MODE) {
       student.faceRegisteredAt = new Date();
       await student.save();
-
+      console.log("[face-register] DEV_MODE — skipped opencv, marked registered:", student._id);
       return res.status(200).json({
         success: true,
         message: "Face registration completed (DEV_MODE)",
@@ -441,15 +386,13 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
+    // ✅ FIX 4: Already registered — allow re-registration (upsert in opencv-ai anyway)
     if (student.faceRegisteredAt) {
-      return res.status(409).json({
-        success: false,
-        message: "Face already registered for this account",
-        faceRegistered: true,
-        code: "FACE_ALREADY_REGISTERED"
-      });
+      console.log("[face-register] Student already registered — allowing re-registration (upsert):", student._id);
+      // Do NOT block — fall through to opencv call so embedding gets updated
     }
 
+    // ✅ FIX 5: Check opencv configured
     if (!getOpencvEndpointCandidates("register").length) {
       return res.status(503).json({
         success: false,
@@ -458,53 +401,83 @@ const registerStudentFace = async (req, res) => {
       });
     }
 
-    const { response: registerRes, data: registerData } = await postToOpenCv(
-      "register",
-      {
-        userId: String(student._id),
-        collegeId: student.college ? String(student.college) : "",
-        departmentId: student.department ? String(student.department) : "",
-        year: student.year || "",
-        division: student.division || "",
-        image: primaryImage,
-        frames: validFrames
-      },
-      { timeoutMs: 30000 }
-    );
+    console.log("[face-register] Calling opencv-ai /register for userId:", student._id);
+    console.log("[face-register] Frames count:", validFrames.length, "| Has image:", !!primaryImage);
+
+    // ✅ FIX 6: Call opencv-ai with full payload
+    let registerRes, registerData;
+    try {
+      const result = await postToOpenCv(
+        "register",
+        {
+          userId: String(student._id),
+          collegeId: student.college ? String(student.college) : "",
+          departmentId: student.department ? String(student.department) : "",
+          year: student.year || "",
+          division: student.division || "",
+          image: primaryImage,
+          frames: validFrames.length > 0 ? validFrames : [primaryImage]
+        },
+        { timeoutMs: 30000 }
+      );
+      registerRes = result.response;
+      registerData = result.data;
+    } catch (opencvError) {
+      console.error("[face-register] OpenCV call failed:", opencvError?.message || opencvError);
+      return res.status(503).json({
+        success: false,
+        message: "Face recognition service unreachable. Please retry in a moment.",
+        code: "OPENCV_UNREACHABLE"
+      });
+    }
+
+    console.log("[face-register] OpenCV response status:", registerRes.status);
+    console.log("[face-register] OpenCV response data:", JSON.stringify(registerData));
 
     const confidenceValue = Number(registerData?.confidence);
     const embedding = registerData?.embedding;
 
-    if (
-      !registerRes.ok ||
-      !registerData?.success
-    ) {
-      let failureMessage = registerData?.message || "Face registration failed";
+    // ✅ FIX 7: Handle duplicate face gracefully
+    if (registerData?.code === "DUPLICATE_FACE") {
       let existingUserName = null;
-      if (
-        registerRes.status === 403 &&
-        String(registerData?.message || "").toLowerCase().includes("already registered") &&
-        registerData?.existingUserId
-      ) {
-        const existingUser = await User.findById(registerData.existingUserId).select("name email").lean();
-        if (existingUser?.name) {
-          existingUserName = existingUser.name;
-          failureMessage = `Face already registered with another account (${existingUser.name})`;
-        }
+      if (registerData?.existingUserId) {
+        try {
+          const existingUser = await User.findById(registerData.existingUserId)
+            .select("name email")
+            .lean();
+          if (existingUser?.name) {
+            existingUserName = existingUser.name;
+          }
+        } catch (_) {}
       }
+      return res.status(409).json({
+        success: false,
+        message: existingUserName
+          ? `Face already registered with another account (${existingUserName})`
+          : "Face already registered with another account",
+        code: "DUPLICATE_FACE",
+        existingUserName
+      });
+    }
 
-      return res.status(403).json({
+    // ✅ FIX 8: Handle opencv failure with clear message
+    if (!registerRes.ok || !registerData?.success) {
+      const failureMessage = registerData?.message || "Face registration failed. Try again with better lighting.";
+      console.error("[face-register] OpenCV returned failure:", failureMessage);
+      return res.status(400).json({
         success: false,
         message: failureMessage,
         confidence: Number.isFinite(confidenceValue) ? confidenceValue : null,
-        existingUserName,
         code: registerData?.code || "FACE_REGISTRATION_FAILED"
       });
     }
 
+    // ✅ SUCCESS — mark faceRegisteredAt
     student.faceRegisteredAt = new Date();
     await student.save();
+    console.log("[face-register] SUCCESS — faceRegisteredAt set for:", student._id);
 
+    // Update invite
     StudentInvite.updateMany(
       { studentEmail: String(student.email || "").toLowerCase(), isActive: true },
       { $set: { isActivated: true, isUsed: true } }
@@ -512,18 +485,19 @@ const registerStudentFace = async (req, res) => {
       console.warn("Student invite activation update error:", inviteError?.message || inviteError);
     });
 
-    /* 🔥 CRITICAL CACHE FIX */
-    try {
-      if (Array.isArray(embedding)) {
+    // Update face cache if embedding returned
+    if (Array.isArray(embedding)) {
+      try {
         updateFaceCache(student._id.toString(), embedding);
-        console.log("Face cache updated:", student._id);
-      } else {
-        console.warn("Embedding missing from OpenCV response. Cache not updated.");
+        console.log("[face-register] Face cache updated for:", student._id);
+      } catch (cacheError) {
+        console.warn("[face-register] Face cache update error:", cacheError.message);
       }
-    } catch (cacheError) {
-      console.warn("Face cache update error:", cacheError.message);
+    } else {
+      console.warn("[face-register] No embedding in opencv response — cache not updated");
     }
 
+    // Webhook
     triggerWebhookEvent({
       event: "student.face.registered",
       collegeId: student.college,
@@ -550,12 +524,12 @@ const registerStudentFace = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Register student face error:", error);
+    console.error("[face-register] Unexpected error:", error);
 
     if (error.name === "AbortError") {
       return res.status(504).json({
         success: false,
-        message: "Application failed to respond",
+        message: "Face recognition service timed out. Please retry.",
         code: "OPENCV_TIMEOUT"
       });
     }
@@ -568,6 +542,7 @@ const registerStudentFace = async (req, res) => {
   }
 };
 
+// ================= CONFIRM STUDENT FACE REGISTRATION (opencv callback) =================
 const confirmStudentFaceRegistration = async (req, res) => {
   try {
     const { user_id, userId, confidence } = req.body;
@@ -575,32 +550,20 @@ const confirmStudentFaceRegistration = async (req, res) => {
     const confidenceValue = Number(confidence);
 
     if (!targetUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "user_id is required"
-      });
+      return res.status(400).json({ success: false, message: "user_id is required" });
     }
 
     if (!Number.isFinite(confidenceValue)) {
-      return res.status(400).json({
-        success: false,
-        message: "confidence must be a number"
-      });
+      return res.status(400).json({ success: false, message: "confidence must be a number" });
     }
 
     if (confidenceValue < FACE_REGISTRATION_CONFIDENCE) {
-      return res.status(403).json({
-        success: false,
-        message: "Face confidence too low"
-      });
+      return res.status(403).json({ success: false, message: "Face confidence too low" });
     }
 
     const student = await User.findById(targetUserId);
     if (!student || student.role !== "student" || !student.isActive) {
-      return res.status(404).json({
-        success: false,
-        message: "Student not found"
-      });
+      return res.status(404).json({ success: false, message: "Student not found" });
     }
 
     student.faceRegisteredAt = new Date();
@@ -613,10 +576,7 @@ const confirmStudentFaceRegistration = async (req, res) => {
     });
   } catch (error) {
     console.error("Confirm student face registration error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to confirm face registration"
-    });
+    return res.status(500).json({ success: false, message: "Failed to confirm face registration" });
   }
 };
 
