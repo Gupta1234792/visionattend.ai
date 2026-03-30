@@ -34,4 +34,6 @@ RUN python -c "from insightface.app import FaceAnalysis; m = FaceAnalysis(name='
 
 EXPOSE 10000
 
-CMD ["gunicorn", "-b", "0.0.0.0:10000", "--timeout", "120", "--workers", "1", "main:app"]
+RUN chmod +x /app/start.sh
+
+CMD ["/app/start.sh"]

@@ -15,7 +15,7 @@ import numpy as np
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from utils.mongo import faces as faces_col
+from utils.mongo import get_faces_collection, get_mongo_status
 
 app = Flask(__name__)
 CORS(app)
@@ -233,6 +233,7 @@ def face_is_too_small(face, frame):
 # DUPLICATE CHECK
 # ─────────────────────────────────────────────
 def find_duplicate_face(embedding, user_id):
+    faces_col = get_faces_collection()
     current_embedding = normalize_embedding(embedding)
     for doc in faces_col.find({"userId": {"$ne": user_id}}, {"userId": 1, "embedding": 1}):
         stored = doc.get("embedding")
@@ -257,6 +258,13 @@ def health():
     return {"success": True, "status": "healthy"}
 
 
+@app.get("/health/db")
+def health_db():
+    mongo = get_mongo_status()
+    status = "healthy" if mongo["connected"] else "degraded"
+    return {"success": True, "status": status, "mongo": mongo}
+
+
 @app.post("/register")
 def register_face():
     if not ensure_api_key():
@@ -271,6 +279,12 @@ def register_face():
         return error_response("userId required", 400, code="MISSING_USER_ID")
 
     log_event("REGISTER_START", userId=user_id)
+
+    try:
+        faces_col = get_faces_collection()
+    except Exception as exc:
+        log_event("REGISTER_FAIL", userId=user_id, reason="DB_UNAVAILABLE")
+        return error_response("Database unavailable", 503, code="DB_UNAVAILABLE", detail=str(exc))
 
     try:
         frames = decode_frame_sequence(frames_value, image)
@@ -360,6 +374,12 @@ def verify_face():
         return error_response("userId required", 400, code="MISSING_USER_ID", matched=False, confidence=None)
 
     log_event("VERIFY_START", userId=user_id)
+
+    try:
+        faces_col = get_faces_collection()
+    except Exception as exc:
+        log_event("VERIFY_FAIL", userId=user_id, reason="DB_UNAVAILABLE")
+        return error_response("Database unavailable", 503, code="DB_UNAVAILABLE", matched=False, confidence=None, detail=str(exc))
 
     try:
         frames = decode_frame_sequence(frames_value, image)
