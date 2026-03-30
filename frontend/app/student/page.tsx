@@ -1007,6 +1007,7 @@ export default function StudentPage() {
       return {
         latitude: location.latitude,
         longitude: location.longitude,
+        locationTimestamp: Date.now(),
       };
     } catch (error) {
       if (allowManualBypass) {
@@ -1015,7 +1016,10 @@ export default function StudentPage() {
           setMessage(
             "Live location blocked on this mobile URL. Using college location for dev test.",
           );
-          return fallback;
+          return {
+            ...fallback,
+            locationTimestamp: Date.now(),
+          };
         }
       }
 
@@ -1087,6 +1091,7 @@ export default function StudentPage() {
           sessionId: activeSessionId,
           latitude: location.latitude,
           longitude: location.longitude,
+          locationTimestamp: location.locationTimestamp,
           frames,
         },
         {
@@ -1152,6 +1157,7 @@ export default function StudentPage() {
         sessionId: activeSessionId,
         latitude: location.latitude,
         longitude: location.longitude,
+        locationTimestamp: location.locationTimestamp,
         manualBypass: true,
       });
       const status = String(res.data?.attendance?.status || "").toLowerCase();

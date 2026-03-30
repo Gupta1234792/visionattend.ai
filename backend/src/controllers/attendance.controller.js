@@ -12,13 +12,22 @@ const { emitToCollegeRoom } = require("../sockets/gateway");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { getFaceEmbedding, refreshCacheIfNeeded, cosineSimilarity } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
+const {
+  assertImagePayloadLimit,
+  filterValidImageDataUrls
+} = require("../utils/imagePayload");
 
 const sendPushNotification = async () => false;
 
-const ATTENDANCE_LIMIT_MINUTES = 10;
+const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 10;
 const FACE_CONFIDENCE_THRESHOLD = Number(process.env.FACE_CONFIDENCE_THRESHOLD) || 0.5;
 const LOCATION_GREEN_METERS = Number(process.env.LOCATION_GREEN_METERS) || 50;
 const LOCATION_YELLOW_METERS = Number(process.env.LOCATION_YELLOW_METERS) || 150;
+const ATTENDANCE_MAX_RADIUS_METERS = Number(process.env.ATTENDANCE_MAX_RADIUS_METERS) || 100;
+const LOCATION_MAX_AGE_MS = Number(process.env.LOCATION_MAX_AGE_MS) || 60000;
+const LOCATION_FUTURE_SKEW_MS = Number(process.env.LOCATION_FUTURE_SKEW_MS) || 10000;
+const IP_GEO_CHECK_ENABLED = String(process.env.IP_GEO_CHECK_ENABLED || "false") === "true";
+const IP_GEO_MAX_MISMATCH_METERS = Number(process.env.IP_GEO_MAX_MISMATCH_METERS) || 50000;
 const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
   process.env.DEV_FORCE_GREEN_ON_MANUAL_BYPASS || (process.env.NODE_ENV !== "production" ? "true" : "false")
 ) === "true";
@@ -81,6 +90,133 @@ const ensureSubjectTenantAccess = async (subjectId, user) => {
   }
 
   return { ok: true, subject };
+};
+
+const parseFiniteCoordinate = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getClientIp = (req) => {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const rawIp = forwarded || req.ip || req.socket?.remoteAddress || "";
+  return String(rawIp).replace(/^::ffff:/, "").trim();
+};
+
+const isPrivateOrLocalIp = (ip) => {
+  if (!ip) return true;
+  const normalized = ip.toLowerCase();
+  return (
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("10.") ||
+    normalized.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
+  );
+};
+
+const lookupIpLocation = async (ip) => {
+  if (!IP_GEO_CHECK_ENABLED || !ip || isPrivateOrLocalIp(ip)) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
+      signal: AbortSignal.timeout(2500)
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const latitude = parseFiniteCoordinate(data?.latitude);
+    const longitude = parseFiniteCoordinate(data?.longitude);
+
+    if (latitude == null || longitude == null) {
+      return null;
+    }
+
+    return { latitude, longitude };
+  } catch (_) {
+    return null;
+  }
+};
+
+const validateGeoContext = async ({ req, college, session, latitude, longitude, locationTimestamp }) => {
+  if (latitude == null || longitude == null) {
+    return { ok: false, status: 400, message: "Valid latitude and longitude are required", code: "INVALID_LOCATION" };
+  }
+
+  if (!Number.isFinite(locationTimestamp)) {
+    return { ok: false, status: 400, message: "locationTimestamp is required", code: "LOCATION_TIMESTAMP_REQUIRED" };
+  }
+
+  const now = Date.now();
+  if (locationTimestamp > now + LOCATION_FUTURE_SKEW_MS) {
+    return { ok: false, status: 400, message: "Location timestamp is invalid", code: "INVALID_LOCATION_TIMESTAMP" };
+  }
+
+  if (now - locationTimestamp > LOCATION_MAX_AGE_MS) {
+    return { ok: false, status: 400, message: "Location data is stale", code: "STALE_LOCATION" };
+  }
+
+  if (!college?.location?.latitude || !college?.location?.longitude) {
+    return { ok: false, status: 400, message: "College location is not configured", code: "COLLEGE_LOCATION_MISSING" };
+  }
+
+  const sessionDistance = getDistanceInMeters(
+    latitude,
+    longitude,
+    session.location.latitude,
+    session.location.longitude
+  );
+
+  const collegeDistance = getDistanceInMeters(
+    latitude,
+    longitude,
+    college.location.latitude,
+    college.location.longitude
+  );
+
+  if (collegeDistance > ATTENDANCE_MAX_RADIUS_METERS) {
+    return {
+      ok: false,
+      status: 403,
+      message: "You are outside the allowed attendance radius",
+      code: "OUTSIDE_ALLOWED_RADIUS",
+      sessionDistance,
+      collegeDistance
+    };
+  }
+
+  const ipLocation = await lookupIpLocation(getClientIp(req));
+  if (ipLocation) {
+    const ipDistance = getDistanceInMeters(
+      latitude,
+      longitude,
+      ipLocation.latitude,
+      ipLocation.longitude
+    );
+
+    if (ipDistance > IP_GEO_MAX_MISMATCH_METERS) {
+      return {
+        ok: false,
+        status: 403,
+        message: "Network location does not match submitted GPS location",
+        code: "IP_LOCATION_MISMATCH",
+        sessionDistance,
+        collegeDistance,
+        ipDistance
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    sessionDistance,
+    collegeDistance
+  };
 };
 
 const startAttendanceSession = async (req, res) => {
@@ -464,16 +600,25 @@ const getActiveClassSession = async (req, res) => {
 // NEW: Mark attendance for class session (subject-agnostic)
 const markClassAttendance = async (req, res) => {
   try {
-    const { sessionId, latitude, longitude, manualBypass } = req.body;
+    const { sessionId, latitude, longitude, locationTimestamp, manualBypass, userId } = req.body;
+
+    if (userId && String(userId) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only mark your own attendance",
+        code: "USER_MISMATCH"
+      });
+    }
 
     if (
       !sessionId ||
       latitude == null ||
-      longitude == null
+      longitude == null ||
+      locationTimestamp == null
     ) {
       return res.status(400).json({
         success: false,
-        message: "sessionId, latitude and longitude are required"
+        message: "sessionId, latitude, longitude and locationTimestamp are required"
       });
     }
 
@@ -557,27 +702,25 @@ const markClassAttendance = async (req, res) => {
       });
     }
 
-    const sessionDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      session.location.latitude,
-      session.location.longitude
-    );
-
     const college = await College.findById(req.user.college).select("location");
-    if (!college?.location?.latitude || !college?.location?.longitude) {
-      return res.status(400).json({
+    const geoValidation = await validateGeoContext({
+      req,
+      college,
+      session,
+      latitude: parseFiniteCoordinate(latitude),
+      longitude: parseFiniteCoordinate(longitude),
+      locationTimestamp: Number(locationTimestamp)
+    });
+    if (!geoValidation.ok) {
+      return res.status(geoValidation.status).json({
         success: false,
-        message: "College location is not configured"
+        message: geoValidation.message,
+        code: geoValidation.code
       });
     }
 
-    const collegeDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      college.location.latitude,
-      college.location.longitude
-    );
+    const sessionDistance = geoValidation.sessionDistance;
+    const collegeDistance = geoValidation.collegeDistance;
 
     let status = "absent";
     let locationFlag = "red";
@@ -609,8 +752,10 @@ const markClassAttendance = async (req, res) => {
       distanceMeters: collegeDistance,
       gpsDistance: sessionDistance,
       location: {
-        latitude: Number(latitude),
-        longitude: Number(longitude)
+        latitude: parseFiniteCoordinate(latitude),
+        longitude: parseFiniteCoordinate(longitude),
+        lat: parseFiniteCoordinate(latitude),
+        lng: parseFiniteCoordinate(longitude)
       }
     });
 
@@ -672,12 +817,34 @@ const markClassAttendance = async (req, res) => {
 // NEW: Mark class attendance via face scan
 const scanFaceAndMarkClassAttendance = async (req, res) => {
   try {
-    const { sessionId, latitude, longitude, frames, manualBypass } = req.body;
+    const { sessionId, latitude, longitude, locationTimestamp, frames, manualBypass, userId } = req.body;
 
-    if (!sessionId || latitude == null || longitude == null || !Array.isArray(frames) || frames.length < LIVE_SCAN_MIN_FRAMES) {
+    if (userId && String(userId) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only mark your own attendance",
+        code: "USER_MISMATCH"
+      });
+    }
+
+    const validFrames = filterValidImageDataUrls(frames);
+    if (!sessionId || latitude == null || longitude == null || locationTimestamp == null || validFrames.length < LIVE_SCAN_MIN_FRAMES) {
       return res.status(400).json({
         success: false,
-        message: `sessionId, latitude, longitude and at least ${LIVE_SCAN_MIN_FRAMES} live frames are required`
+        message: `sessionId, latitude, longitude, locationTimestamp and at least ${LIVE_SCAN_MIN_FRAMES} live frames are required`
+      });
+    }
+
+    try {
+      assertImagePayloadLimit({
+        image: validFrames[validFrames.length - 1],
+        frames: validFrames
+      });
+    } catch (payloadError) {
+      return res.status(413).json({
+        success: false,
+        message: payloadError.message,
+        code: "IMAGE_PAYLOAD_TOO_LARGE"
       });
     }
 
@@ -778,14 +945,15 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       {
         userId: String(req.user._id),
         subjectId: String(session.subject),
-        image: frames[frames.length - 1],
-        frames
+        image: validFrames[validFrames.length - 1],
+        frames: validFrames
       },
       { timeoutMs: 12000 }
     );
     const confidenceValue = Number(opencvData?.confidence);
-      const matched = Boolean(opencvData?.matched || opencvData?.success);
-      const livenessPassed = opencvData?.livenessPassed !== false;
+    const matched = Boolean(opencvData?.matched || opencvData?.success);
+    const livenessPassed =
+      opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;
 
     if (
       !opencvRes.ok ||
@@ -798,31 +966,30 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
         success: false,
         message: opencvData?.message || "Face not recognized",
         confidence: Number.isFinite(confidenceValue) ? confidenceValue : null,
-        blinkDetected: Boolean(opencvData?.blinkDetected)
+        blinkDetected: Boolean(opencvData?.blinkDetected),
+        code: opencvData?.code || "FACE_NOT_RECOGNIZED"
       });
     }
 
     const college = await College.findById(req.user.college).select("location");
-    if (!college?.location?.latitude || !college?.location?.longitude) {
-      return res.status(400).json({
+    const geoValidation = await validateGeoContext({
+      req,
+      college,
+      session,
+      latitude: parseFiniteCoordinate(latitude),
+      longitude: parseFiniteCoordinate(longitude),
+      locationTimestamp: Number(locationTimestamp)
+    });
+    if (!geoValidation.ok) {
+      return res.status(geoValidation.status).json({
         success: false,
-        message: "College location is not configured"
+        message: geoValidation.message,
+        code: geoValidation.code
       });
     }
 
-    const sessionDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      session.location.latitude,
-      session.location.longitude
-    );
-
-    const collegeDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      college.location.latitude,
-      college.location.longitude
-    );
+    const sessionDistance = geoValidation.sessionDistance;
+    const collegeDistance = geoValidation.collegeDistance;
 
     let status = "absent";
     let locationFlag = "red";
@@ -852,8 +1019,10 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
           distanceMeters: collegeDistance,
           gpsDistance: sessionDistance,
           location: {
-            latitude: Number(latitude),
-            longitude: Number(longitude)
+            latitude: parseFiniteCoordinate(latitude),
+            longitude: parseFiniteCoordinate(longitude),
+            lat: parseFiniteCoordinate(latitude),
+            lng: parseFiniteCoordinate(longitude)
           },
           faceVerified: true,
           faceConfidence: confidenceValue
@@ -945,16 +1114,25 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
 
 const markAttendance = async (req, res) => {
   try {
-    const { sessionId, latitude, longitude, manualBypass } = req.body;
+    const { sessionId, latitude, longitude, locationTimestamp, manualBypass, userId } = req.body;
+
+    if (userId && String(userId) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only mark your own attendance",
+        code: "USER_MISMATCH"
+      });
+    }
 
     if (
       !sessionId ||
       latitude == null ||
-      longitude == null
+      longitude == null ||
+      locationTimestamp == null
     ) {
       return res.status(400).json({
         success: false,
-        message: "sessionId, latitude and longitude are required"
+        message: "sessionId, latitude, longitude and locationTimestamp are required"
       });
     }
 
@@ -1019,27 +1197,25 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    const sessionDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      session.location.latitude,
-      session.location.longitude
-    );
-
     const college = await College.findById(req.user.college).select("location");
-    if (!college?.location?.latitude || !college?.location?.longitude) {
-      return res.status(400).json({
+    const geoValidation = await validateGeoContext({
+      req,
+      college,
+      session,
+      latitude: parseFiniteCoordinate(latitude),
+      longitude: parseFiniteCoordinate(longitude),
+      locationTimestamp: Number(locationTimestamp)
+    });
+    if (!geoValidation.ok) {
+      return res.status(geoValidation.status).json({
         success: false,
-        message: "College location is not configured"
+        message: geoValidation.message,
+        code: geoValidation.code
       });
     }
 
-    const collegeDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      college.location.latitude,
-      college.location.longitude
-    );
+    const sessionDistance = geoValidation.sessionDistance;
+    const collegeDistance = geoValidation.collegeDistance;
 
     let status = "absent";
     let locationFlag = "red";
@@ -1063,14 +1239,18 @@ const markAttendance = async (req, res) => {
       session: session._id,
       student: req.user._id,
       subject: session.subject,
+      batchKey: session.batchKey,
+      date: getToday(),
       classKey: session.classKey,
       status,
       locationFlag,
       distanceMeters: collegeDistance,
       gpsDistance: sessionDistance,
       location: {
-        latitude: Number(latitude),
-        longitude: Number(longitude)
+        latitude: parseFiniteCoordinate(latitude),
+        longitude: parseFiniteCoordinate(longitude),
+        lat: parseFiniteCoordinate(latitude),
+        lng: parseFiniteCoordinate(longitude)
       }
     });
 
@@ -1226,6 +1406,8 @@ const markAttendanceViaFace = async (req, res) => {
       session: session._id,
       student: finalUserId,
       subject: session.subject,
+      batchKey,
+      date: getToday(),
       classKey,
       status: "present",
       locationFlag: "green",
@@ -1249,12 +1431,34 @@ const markAttendanceViaFace = async (req, res) => {
 
 const scanFaceAndMarkAttendance = async (req, res) => {
   try {
-    const { sessionId, latitude, longitude, frames } = req.body;
+    const { sessionId, latitude, longitude, locationTimestamp, frames, userId } = req.body;
 
-    if (!sessionId || latitude == null || longitude == null || !Array.isArray(frames) || frames.length < LIVE_SCAN_MIN_FRAMES) {
+    if (userId && String(userId) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only mark your own attendance",
+        code: "USER_MISMATCH"
+      });
+    }
+
+    const validFrames = filterValidImageDataUrls(frames);
+    if (!sessionId || latitude == null || longitude == null || locationTimestamp == null || validFrames.length < LIVE_SCAN_MIN_FRAMES) {
       return res.status(400).json({
         success: false,
-        message: `sessionId, latitude, longitude and at least ${LIVE_SCAN_MIN_FRAMES} live frames are required`
+        message: `sessionId, latitude, longitude, locationTimestamp and at least ${LIVE_SCAN_MIN_FRAMES} live frames are required`
+      });
+    }
+
+    try {
+      assertImagePayloadLimit({
+        image: validFrames[validFrames.length - 1],
+        frames: validFrames
+      });
+    } catch (payloadError) {
+      return res.status(413).json({
+        success: false,
+        message: payloadError.message,
+        code: "IMAGE_PAYLOAD_TOO_LARGE"
       });
     }
 
@@ -1325,8 +1529,8 @@ const scanFaceAndMarkAttendance = async (req, res) => {
       {
         userId: String(req.user._id),
         subjectId: String(session.subject),
-        image: frames[frames.length - 1],
-        frames
+        image: validFrames[validFrames.length - 1],
+        frames: validFrames
       },
       { timeoutMs: 12000 }
     );
@@ -1351,27 +1555,24 @@ const scanFaceAndMarkAttendance = async (req, res) => {
     }
 
     const college = await College.findById(req.user.college).select("location");
-    if (!college?.location?.latitude || !college?.location?.longitude) {
-      return res.status(400).json({
+    const geoValidation = await validateGeoContext({
+      req,
+      college,
+      session,
+      latitude: parseFiniteCoordinate(latitude),
+      longitude: parseFiniteCoordinate(longitude),
+      locationTimestamp: Number(locationTimestamp)
+    });
+    if (!geoValidation.ok) {
+      return res.status(geoValidation.status).json({
         success: false,
-        message: "College location is not configured",
-        code: "COLLEGE_LOCATION_MISSING"
+        message: geoValidation.message,
+        code: geoValidation.code
       });
     }
 
-    const sessionDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      session.location.latitude,
-      session.location.longitude
-    );
-
-    const collegeDistance = getDistanceInMeters(
-      Number(latitude),
-      Number(longitude),
-      college.location.latitude,
-      college.location.longitude
-    );
+    const sessionDistance = geoValidation.sessionDistance;
+    const collegeDistance = geoValidation.collegeDistance;
 
     let status = "absent";
     let locationFlag = "red";
@@ -1387,14 +1588,18 @@ const scanFaceAndMarkAttendance = async (req, res) => {
       session: session._id,
       student: req.user._id,
       subject: session.subject,
+      batchKey: session.batchKey,
+      date: getToday(),
       classKey: session.classKey,
       status,
       locationFlag,
       distanceMeters: collegeDistance,
       gpsDistance: sessionDistance,
       location: {
-        latitude: Number(latitude),
-        longitude: Number(longitude)
+        latitude: parseFiniteCoordinate(latitude),
+        longitude: parseFiniteCoordinate(longitude),
+        lat: parseFiniteCoordinate(latitude),
+        lng: parseFiniteCoordinate(longitude)
       },
       faceVerified: true,
       faceConfidence: confidenceValue

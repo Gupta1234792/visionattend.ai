@@ -47,6 +47,38 @@ const ensureNamedIndex = async (collection, name, key) => {
 const ensureFaceIndexes = async () => {
   try {
     const faces = getFacesCollection();
+    const users = mongoose.connection.db.collection("users");
+
+    const faceDocs = await faces.find({}, { projection: { _id: 1, userId: 1, embedding: 1, debug: 1 } }).toArray();
+    const orphanIds = [];
+
+    for (const doc of faceDocs) {
+      const rawUserId = String(doc?.userId || "").trim();
+      if (doc?.debug || !rawUserId || !Array.isArray(doc.embedding) || !doc.embedding.length) {
+        orphanIds.push(doc._id);
+        continue;
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(rawUserId)) {
+        orphanIds.push(doc._id);
+        continue;
+      }
+
+      const exists = await users.findOne(
+        { _id: new mongoose.Types.ObjectId(rawUserId), role: "student", isActive: true },
+        { projection: { _id: 1 } },
+      );
+
+      if (!exists) {
+        orphanIds.push(doc._id);
+      }
+    }
+
+    if (orphanIds.length) {
+      await faces.deleteMany({ _id: { $in: orphanIds } });
+      console.warn(`[db] removed ${orphanIds.length} orphan/debug face documents`);
+    }
+
     await dropInvalidIndexes(faces);
     await ensureNamedIndex(faces, "idx_faces_user", { userId: 1 });
     await ensureNamedIndex(faces, "idx_faces_subject", { subjectId: 1 });

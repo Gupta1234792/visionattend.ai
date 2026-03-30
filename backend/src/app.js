@@ -36,6 +36,7 @@ const { checkOpenCvHealth } = require("./startup/opencv");
 const { getMongoState } = require("./config/db");
 
 const app = express();
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "10mb";
 const FRONTEND_URLS = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.6:3000")
   .split(",")
   .map((url) => url.trim())
@@ -94,7 +95,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-app.use(express.json());
+app.set("trust proxy", true);
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 app.use(morgan("dev"));
 
 app.use("/api/auth", authRateLimit, authRoutes);

@@ -1,0 +1,191 @@
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+[db] removed 2 orphan/debug face documents
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+ValidationError: The Express 'trust proxy' setting is true, which allows anyone to trivially bypass IP-based rate limiting. See https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/ for more information.
+    at Object.trustProxy (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:149:13)
+    at wrappedValidations.<computed> [as trustProxy] (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:362:22)
+    at Object.keyGenerator (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:616:20)
+    at C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:670:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:650:5 {
+  code: 'ERR_ERL_PERMISSIVE_TRUST_PROXY',
+  help: 'https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/'
+}
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+ValidationError: The Express 'trust proxy' setting is true, which allows anyone to trivially bypass IP-based rate limiting. See https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/ for more information.
+    at Object.trustProxy (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:149:13)
+    at wrappedValidations.<computed> [as trustProxy] (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:362:22)
+    at Object.keyGenerator (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:616:20)
+    at C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:670:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:650:5 {
+  code: 'ERR_ERL_PERMISSIVE_TRUST_PROXY',
+  help: 'https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/'
+}
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+[face-register] OpenCV returned failure: Low quality image
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+[face-register] OpenCV returned failure: Low quality image
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+[face-register] OpenCV returned failure: Low quality image
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+[face-register] OpenCV returned failure: Face too small in frame
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+ValidationError: The Express 'trust proxy' setting is true, which allows anyone to trivially bypass IP-based rate limiting. See https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/ for more information.
+    at Object.trustProxy (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:149:13)
+    at wrappedValidations.<computed> [as trustProxy] (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:362:22)
+    at Object.keyGenerator (C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:616:20)
+    at C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:670:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async C:\Users\Admin\Desktop\visionattend\backend\node_modules\express-rate-limit\dist\index.cjs:650:5 {
+  code: 'ERR_ERL_PERMISSIVE_TRUST_PROXY',
+  help: 'https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/'
+}
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+❌ Redis connection error: getaddrinfo ENOTFOUND redis
+^C^C

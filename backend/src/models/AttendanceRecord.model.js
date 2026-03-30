@@ -39,6 +39,18 @@ const attendanceRecordSchema = new mongoose.Schema(
       index: true
     },
 
+    batchKey: {
+      type: String,
+      default: null,
+      index: true
+    },
+
+    date: {
+      type: String,
+      default: null,
+      index: true
+    },
+
     classKey: {
       type: String,
       required: true,
@@ -68,7 +80,9 @@ const attendanceRecordSchema = new mongoose.Schema(
 
     location: {
       latitude: Number,
-      longitude: Number
+      longitude: Number,
+      lat: Number,
+      lng: Number
     },
 
     joinTime: {

@@ -5,6 +5,8 @@ export const mapFaceErrorMessage = (message: string) => {
   if (normalized.includes("multiple faces")) return "Only one person allowed";
   if (normalized.includes("low confidence") || normalized.includes("confidence")) return "Move closer";
   if (normalized.includes("not clear") || normalized.includes("blur") || normalized.includes("lighting")) return "Improve lighting";
+  if (normalized.includes("too large") || normalized.includes("payload")) return "Captured image is too large. Retry once.";
+  if (normalized.includes("opencv") || normalized.includes("service unreachable")) return "Face service is temporarily unavailable";
   if (normalized.includes("permission")) return "Camera permission required";
 
   return message;

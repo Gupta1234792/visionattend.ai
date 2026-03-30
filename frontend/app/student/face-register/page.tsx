@@ -14,6 +14,30 @@ const CAPTURE_STEPS = [
 ] as const;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const TARGET_FRAME_SIZE = 640;
+
+const renderJpegFrame = (
+  image: HTMLImageElement,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  outputWidth = TARGET_FRAME_SIZE,
+  outputHeight = TARGET_FRAME_SIZE,
+  quality = 0.82,
+) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return "";
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image, sx, sy, sw, sh, 0, 0, outputWidth, outputHeight);
+  return canvas.toDataURL("image/jpeg", quality);
+};
 
 const loadImage = (src: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -27,18 +51,9 @@ const buildRegistrationVariants = async (frame: string) => {
   const image = await loadImage(frame);
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
-
-  const drawVariant = (sx: number, sy: number, sw: number, sh: number) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return frame;
-    }
-    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", 0.92);
-  };
+  const squareSize = Math.min(width, height);
+  const squareX = Math.max(0, Math.round((width - squareSize) / 2));
+  const squareY = Math.max(0, Math.round((height - squareSize) / 2));
 
   const centerCropW = Math.round(width * 0.78);
   const centerCropH = Math.round(height * 0.82);
@@ -51,10 +66,10 @@ const buildRegistrationVariants = async (frame: string) => {
   const tightCropY = Math.max(0, Math.round(height * 0.1));
 
   return [
-    frame,
-    drawVariant(centerCropX, centerCropY, centerCropW, centerCropH),
-    drawVariant(tightCropX, tightCropY, tightCropW, tightCropH),
-  ];
+    renderJpegFrame(image, squareX, squareY, squareSize, squareSize, TARGET_FRAME_SIZE, TARGET_FRAME_SIZE, 0.84),
+    renderJpegFrame(image, centerCropX, centerCropY, centerCropW, centerCropH, TARGET_FRAME_SIZE, TARGET_FRAME_SIZE, 0.82),
+    renderJpegFrame(image, tightCropX, tightCropY, tightCropW, tightCropH, TARGET_FRAME_SIZE, TARGET_FRAME_SIZE, 0.8),
+  ].filter((item) => typeof item === "string" && item.startsWith("data:image/jpeg;base64,"));
 };
 
 export default function StudentFaceRegisterPage() {
@@ -70,11 +85,8 @@ export default function StudentFaceRegisterPage() {
   const [lastConfidence, setLastConfidence] = useState<number | null>(null);
   const [lowLightWarning, setLowLightWarning] = useState("");
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
-  const [studentId, setStudentId] = useState("");
   const allowBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
   const devMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
-  const directOpenCvUrl = String(process.env.NEXT_PUBLIC_OPENCV_URL || "").trim().replace(/\/+$/, "");
-  const directOpenCvKey = String(process.env.NEXT_PUBLIC_OPENCV_KEY || "").trim();
   const {
     videoRef,
     canvasRef,
@@ -101,7 +113,6 @@ export default function StudentFaceRegisterPage() {
         const res = await api.get("/students/me");
         const isRegistered = Boolean(res.data?.student?.faceRegisteredAt);
         if (!cancelled) {
-          setStudentId(String(res.data?.student?._id || res.data?.student?.id || ""));
           setAlreadyRegistered(isRegistered);
           if (isRegistered) {
             setStatusTag("success");
@@ -116,11 +127,6 @@ export default function StudentFaceRegisterPage() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    console.log("opencv url:", directOpenCvUrl || "(not set)");
-    console.log("key:", directOpenCvKey || "(not set)");
-  }, [directOpenCvKey, directOpenCvUrl]);
 
   useEffect(() => {
     if (!cameraOpen || !videoReady || !videoRef.current || !canvasRef.current) {
@@ -249,57 +255,10 @@ export default function StudentFaceRegisterPage() {
       }
       await wait(120);
 
-      console.log("key:", process.env.NEXT_PUBLIC_OPENCV_KEY);
-      console.log("opencv url:", process.env.NEXT_PUBLIC_OPENCV_URL);
-
-      let res;
-
-      try {
-        res = await api.post("/students/face-register", {
-          image: capturedFrames[0],
-          frames: registrationFrames,
-        });
-      } catch (backendError) {
-        const shouldTryDirect =
-          Boolean(directOpenCvUrl && directOpenCvKey && studentId) &&
-          !(
-            (backendError as { response?: { status?: number } })?.response?.status &&
-            [400, 401, 403, 404, 409].includes(
-              Number((backendError as { response?: { status?: number } })?.response?.status),
-            )
-          );
-
-        if (!shouldTryDirect) {
-          throw backendError;
-        }
-
-        const directRes = await fetch(`${directOpenCvUrl}/register`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-opencv-key": directOpenCvKey,
-          },
-          body: JSON.stringify({
-            userId: studentId,
-            image: capturedFrames[0],
-            frames: registrationFrames,
-          }),
-        });
-
-        const directData = await directRes.json().catch(() => ({}));
-        console.log("direct opencv register status:", directRes.status, directData);
-
-        if (!directRes.ok || !directData?.success) {
-          throw {
-            response: {
-              status: directRes.status,
-              data: directData,
-            },
-          };
-        }
-
-        res = { data: directData };
-      }
+      const res = await api.post("/students/face-register", {
+        image: registrationFrames[0],
+        frames: registrationFrames,
+      });
 
       if (res.data?.success) {
         setLastConfidence(Number(res.data?.confidence || 0));

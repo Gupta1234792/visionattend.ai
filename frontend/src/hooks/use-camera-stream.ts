@@ -146,9 +146,11 @@ export function useCameraStream(options?: UseCameraStreamOptions) {
 
     const sourceWidth = video.videoWidth || 640;
     const sourceHeight = video.videoHeight || 480;
+    const maxDimension = 720;
+    const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
 
-    canvas.width = sourceWidth;
-    canvas.height = sourceHeight;
+    canvas.width = Math.max(320, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(320, Math.round(sourceHeight * scale));
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
@@ -156,7 +158,7 @@ export function useCameraStream(options?: UseCameraStreamOptions) {
     }
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    return canvas.toDataURL("image/jpeg", 0.82);
   }, [isOpen]);
 
   const handleReady = useCallback(() => {

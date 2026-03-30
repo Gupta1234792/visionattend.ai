@@ -125,6 +125,7 @@ const postToOpenCv = async (kind, payload, options = {}) => {
   const headers = {
     "Content-Type": "application/json",
     "x-opencv-key": process.env.OPENCV_API_KEY || "",
+    "x-opencv-client": process.env.OPENCV_CLIENT_ID || "backend",
     ...(options.headers || {}),
   };
 

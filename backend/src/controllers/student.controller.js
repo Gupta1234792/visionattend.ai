@@ -6,6 +6,11 @@ const sendCredentialsEmail = require("../utils/sendCredentialsEmail");
 const { triggerWebhookEvent } = require("../utils/webhooks");
 const { updateFaceCache } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
+const {
+  assertImagePayloadLimit,
+  estimateBase64Bytes,
+  isValidImageDataUrl
+} = require("../utils/imagePayload");
 
 const FACE_REGISTRATION_CONFIDENCE = Number(process.env.FACE_REGISTRATION_CONFIDENCE) || 0.2;
 const DEV_MODE = process.env.DEV_MODE === "true";
@@ -333,13 +338,10 @@ const registerStudentFace = async (req, res) => {
 
     // ✅ FIX 1: Valid frames filter
     const validFrames = Array.isArray(frames)
-      ? frames.filter((f) => typeof f === "string" && f.startsWith("data:image/"))
+      ? frames.filter((frame) => isValidImageDataUrl(frame))
       : [];
 
-    const primaryImage =
-      typeof image === "string" && image.startsWith("data:image/")
-        ? image
-        : validFrames[0] || "";
+    const primaryImage = isValidImageDataUrl(image) ? image : validFrames[0] || "";
 
     // ✅ FIX 2: At least one frame OR image required
     if (!primaryImage && validFrames.length === 0) {
@@ -351,17 +353,25 @@ const registerStudentFace = async (req, res) => {
     }
 
     // ✅ FIX 3: Relaxed image size check (5KB instead of 12KB)
-    const parts = primaryImage.split(",");
-    if (parts.length === 2 && parts[1]) {
-      const approxBytes = Math.floor((parts[1].length * 3) / 4);
-      console.log("[face-register] Image size approx bytes:", approxBytes);
-      if (approxBytes < 5000) {
-        return res.status(400).json({
-          success: false,
-          message: "Image too small. Capture a clear face frame close to the camera.",
-          code: "LOW_QUALITY_IMAGE"
-        });
-      }
+    const payloadValidation = assertImagePayloadLimit(
+      primaryImage,
+      validFrames.length ? validFrames : [primaryImage]
+    );
+    if (!payloadValidation.ok) {
+      return res.status(413).json({
+        success: false,
+        message: payloadValidation.message,
+        code: payloadValidation.code || "IMAGE_PAYLOAD_TOO_LARGE"
+      });
+    }
+
+    const approxBytes = estimateBase64Bytes(primaryImage);
+    if (approxBytes < 5000) {
+      return res.status(400).json({
+        success: false,
+        message: "Image too small. Capture a clear face frame close to the camera.",
+        code: "LOW_QUALITY_IMAGE"
+      });
     }
 
     const student = await User.findById(req.user._id);
