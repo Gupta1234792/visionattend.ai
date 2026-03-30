@@ -18,26 +18,31 @@ from flask_cors import CORS
 from utils.mongo import get_faces_collection, get_mongo_status
 
 app = Flask(__name__)
-CORS(app)
+CORS(
+    app,
+    supports_credentials=True,
+    resources={r"/*": {"origins": "*"}},
+    allow_headers=["Content-Type", "x-opencv-key", "Authorization"],
+    methods=["GET", "POST", "OPTIONS"],
+)
 
 API_KEY = os.getenv("OPENCV_API_KEY", "").strip()
 print("[STARTUP] LOADED API_KEY:", repr(API_KEY))
 
 MATCH_THRESHOLD          = float(os.getenv("MATCH_THRESHOLD", "0.50"))
-DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.85"))
+DUPLICATE_FACE_THRESHOLD = float(os.getenv("DUPLICATE_FACE_THRESHOLD", "0.75"))
 MIN_IMAGE_WIDTH          = int(os.getenv("MIN_IMAGE_WIDTH", "240"))
 MIN_IMAGE_HEIGHT         = int(os.getenv("MIN_IMAGE_HEIGHT", "240"))
 MIN_BRIGHTNESS           = float(os.getenv("MIN_BRIGHTNESS", "45"))
 MIN_LAPLACIAN_VAR        = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
 MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.05"))
 
-# 🔥 FIX: Explicit model root — same as Dockerfile ENV
+# Explicit model root — same as Dockerfile ENV
 MODEL_ROOT = os.getenv("INSIGHTFACE_HOME", "/root/.insightface")
 
 
 # ─────────────────────────────────────────────
 # MODEL — singleton, loaded once at startup
-# 🔥 FIX: root= explicitly set — no runtime download
 # ─────────────────────────────────────────────
 arcface = None
 
@@ -48,16 +53,14 @@ def get_model():
         print("[MODEL] Loading InsightFace buffalo_l ...")
         print("[MODEL] root =", MODEL_ROOT)
 
-        # Verify model files exist
         model_dir = os.path.join(MODEL_ROOT, "models", "buffalo_l")
         if os.path.isdir(model_dir):
             print("[MODEL] Files:", os.listdir(model_dir))
         else:
-            print("[MODEL] ❌ ERROR: model_dir not found:", model_dir)
+            print("[MODEL] ERROR: model_dir not found:", model_dir)
 
         from insightface.app import FaceAnalysis
 
-        # 🔥 CRITICAL: root= set karo taaki runtime download na ho
         arcface = FaceAnalysis(
             name="buffalo_l",
             root=MODEL_ROOT,
@@ -99,8 +102,6 @@ def error_response(message, status=400, code="UNKNOWN_ERROR", **extra):
 
 # ─────────────────────────────────────────────
 # IMAGE DECODING
-# FIX 1: base64 whitespace + padding fix
-# FIX 2: BGR → RGB (InsightFace needs RGB)
 # ─────────────────────────────────────────────
 def decode_image_payload(image_value):
     if not image_value or not isinstance(image_value, str):
@@ -123,9 +124,8 @@ def decode_image_payload(image_value):
     if frame is None:
         raise ValueError("Corrupted image")
 
-    # 🔥 OpenCV = BGR, InsightFace = RGB
+    # OpenCV = BGR, InsightFace = RGB
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
     return frame
 
 
@@ -163,7 +163,7 @@ def basic_image_quality(frame):
 
 
 # ─────────────────────────────────────────────
-# FACE DETECTION — direct frame, no preprocess
+# FACE DETECTION
 # ─────────────────────────────────────────────
 def extract_single_face(frame):
     model = get_model()
@@ -325,6 +325,20 @@ def register_face():
     embedding      = normalize_embedding(embedding)
     embedding_hash = build_embedding_hash(embedding)
 
+    # ── FIX: Hash-based exact duplicate check (same image = instant block)
+    existing_hash = faces_col.find_one(
+        {"embeddingHash": embedding_hash, "userId": {"$ne": user_id}},
+        {"userId": 1}
+    )
+    if existing_hash:
+        return error_response(
+            "Face already registered",
+            403,
+            code="DUPLICATE_FACE",
+            existingUserId=existing_hash.get("userId"),
+        )
+
+    # ── Cosine similarity duplicate check (different photo, same person)
     is_duplicate, existing_user_id = find_duplicate_face(embedding, user_id)
     if is_duplicate:
         return error_response(
@@ -429,10 +443,11 @@ def verify_face():
 
 
 # ─────────────────────────────────────────────
-# STARTUP — preload model before first request
+# STARTUP — module level = gunicorn + direct dono ke liye kaam karta hai
 # ─────────────────────────────────────────────
+print("[STARTUP] Preloading InsightFace model ...")
+get_model()
+print("[STARTUP] Model warm ✅")
+
 if __name__ == "__main__":
-    print("[STARTUP] Preloading InsightFace model ...")
-    get_model()
-    print("[STARTUP] Model warm ✅ — starting server")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))

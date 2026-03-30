@@ -70,8 +70,11 @@ export default function StudentFaceRegisterPage() {
   const [lastConfidence, setLastConfidence] = useState<number | null>(null);
   const [lowLightWarning, setLowLightWarning] = useState("");
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
+  const [studentId, setStudentId] = useState("");
   const allowBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
   const devMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
+  const directOpenCvUrl = String(process.env.NEXT_PUBLIC_OPENCV_URL || "").trim().replace(/\/+$/, "");
+  const directOpenCvKey = String(process.env.NEXT_PUBLIC_OPENCV_KEY || "").trim();
   const {
     videoRef,
     canvasRef,
@@ -98,6 +101,7 @@ export default function StudentFaceRegisterPage() {
         const res = await api.get("/students/me");
         const isRegistered = Boolean(res.data?.student?.faceRegisteredAt);
         if (!cancelled) {
+          setStudentId(String(res.data?.student?._id || res.data?.student?.id || ""));
           setAlreadyRegistered(isRegistered);
           if (isRegistered) {
             setStatusTag("success");
@@ -112,6 +116,11 @@ export default function StudentFaceRegisterPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    console.log("opencv url:", directOpenCvUrl || "(not set)");
+    console.log("key:", directOpenCvKey || "(not set)");
+  }, [directOpenCvKey, directOpenCvUrl]);
 
   useEffect(() => {
     if (!cameraOpen || !videoReady || !videoRef.current || !canvasRef.current) {
@@ -240,13 +249,57 @@ export default function StudentFaceRegisterPage() {
       }
       await wait(120);
 
-      const res = await api.post(
-        "/students/face-register",
-        {
+      console.log("key:", process.env.NEXT_PUBLIC_OPENCV_KEY);
+      console.log("opencv url:", process.env.NEXT_PUBLIC_OPENCV_URL);
+
+      let res;
+
+      try {
+        res = await api.post("/students/face-register", {
           image: capturedFrames[0],
           frames: registrationFrames,
+        });
+      } catch (backendError) {
+        const shouldTryDirect =
+          Boolean(directOpenCvUrl && directOpenCvKey && studentId) &&
+          !(
+            (backendError as { response?: { status?: number } })?.response?.status &&
+            [400, 401, 403, 404, 409].includes(
+              Number((backendError as { response?: { status?: number } })?.response?.status),
+            )
+          );
+
+        if (!shouldTryDirect) {
+          throw backendError;
         }
-      );
+
+        const directRes = await fetch(`${directOpenCvUrl}/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-opencv-key": directOpenCvKey,
+          },
+          body: JSON.stringify({
+            userId: studentId,
+            image: capturedFrames[0],
+            frames: registrationFrames,
+          }),
+        });
+
+        const directData = await directRes.json().catch(() => ({}));
+        console.log("direct opencv register status:", directRes.status, directData);
+
+        if (!directRes.ok || !directData?.success) {
+          throw {
+            response: {
+              status: directRes.status,
+              data: directData,
+            },
+          };
+        }
+
+        res = { data: directData };
+      }
 
       if (res.data?.success) {
         setLastConfidence(Number(res.data?.confidence || 0));
