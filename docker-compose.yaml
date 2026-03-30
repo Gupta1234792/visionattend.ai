@@ -28,14 +28,20 @@ services:
     networks: [visionattend_net]
     ports:
       - "10000:10000"
+
+    # ✅ CHANGE 1: env_file use karo
+    env_file:
+      - ./opencv-ai/.env
+
     environment:
       PORT: 10000
-      MONGO_URI: mongodb://mongo:27017/visionattend
-      OPENCV_API_KEY: visionattend-opencv-2026secure   # ← FIXED: backend se match
+      OPENCV_API_KEY: visionattend-opencv-2026secure
       MONGO_CONNECT_RETRIES: 20
       MONGO_CONNECT_DELAY_MS: 2000
+
     depends_on:
       - mongo
+
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:10000/health')"]
       interval: 20s
@@ -49,31 +55,31 @@ services:
     networks: [visionattend_net]
     ports:
       - "5000:5000"
+
+    # ✅ CHANGE 2: env_file use karo
+    env_file:
+      - ./backend/.env
+
     environment:
       PORT: 5000
-      MONGO_URI: mongodb://mongo:27017/visionattend
-      MONGO_HOST: mongo
-      MONGO_PORT: 27017
-      MONGO_DB_NAME: visionattend
-      MONGO_CONNECT_RETRIES: 20
-      MONGO_CONNECT_DELAY_MS: 2000
-      MONGO_CONNECT_MAX_DELAY_MS: 15000
       JWT_SECRET: visionattend-dev-secret
       FRONTEND_URL: http://localhost:3000
       FRONTEND_URLS: http://localhost:3000,http://127.0.0.1:3000
       OPENCV_VERIFY_URL: http://opencv-ai:10000/verify
       OPENCV_REGISTER_URL: http://opencv-ai:10000/register
-      OPENCV_API_KEY: visionattend-opencv-2026secure   # ← FIXED: opencv-ai se match
+      OPENCV_API_KEY: visionattend-opencv-2026secure
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DEV_MODE: "false"
       ALLOW_STUDENT_MANUAL_BYPASS: "false"
       AUTO_SEED_LOCAL_USERS: "true"
       DEMO_USER_PASSWORD: Vision@123
+
     depends_on:
       - mongo
       - redis
       - opencv-ai
+
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
       interval: 15s
@@ -87,8 +93,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:5000   # ← FIXED: browser ke liye localhost
-      NEXT_PUBLIC_SOCKET_URL: http://localhost:5000     # ← ADDED: socket bhi localhost chahiye
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:5000
+      NEXT_PUBLIC_SOCKET_URL: http://localhost:5000
       NEXT_PUBLIC_DEV_BYPASS: "false"
       NEXT_PUBLIC_DEV_MODE: "false"
     depends_on:
