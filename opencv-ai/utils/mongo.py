@@ -40,8 +40,12 @@ def connect_with_retry():
 
 client = connect_with_retry()
 
-default_db = client.get_default_database()
-db = default_db if default_db is not None else client["visionattend"]
+# 🔥 FIX: force DB name (Atlas ke liye mandatory)
+DB_NAME = os.getenv("MONGO_DB_NAME", "visionattend")
+
+print("[opencv.mongo] USING DB:", DB_NAME)
+
+db = client[DB_NAME]
 faces = db["faces"]
 
 
