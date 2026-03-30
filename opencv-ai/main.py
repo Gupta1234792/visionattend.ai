@@ -443,11 +443,11 @@ def verify_face():
 
 
 # ─────────────────────────────────────────────
-# STARTUP — module level = gunicorn + direct dono ke liye kaam karta hai
+# STARTUP — start.sh model download karta hai pehle
+# get_model() pehli request pe lazy load hoga
 # ─────────────────────────────────────────────
-print("[STARTUP] Preloading InsightFace model ...")
-get_model()
-print("[STARTUP] Model warm ✅")
-
 if __name__ == "__main__":
+    print("[STARTUP] Preloading InsightFace model ...")
+    get_model()
+    print("[STARTUP] Model warm ✅")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
