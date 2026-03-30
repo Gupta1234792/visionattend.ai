@@ -31,9 +31,13 @@ MIN_BRIGHTNESS           = float(os.getenv("MIN_BRIGHTNESS", "45"))
 MIN_LAPLACIAN_VAR        = float(os.getenv("MIN_LAPLACIAN_VAR", "50"))
 MIN_FACE_AREA_RATIO      = float(os.getenv("MIN_FACE_AREA_RATIO", "0.05"))
 
+# 🔥 FIX: Explicit model root — same as Dockerfile ENV
+MODEL_ROOT = os.getenv("INSIGHTFACE_HOME", "/root/.insightface")
+
 
 # ─────────────────────────────────────────────
 # MODEL — singleton, loaded once at startup
+# 🔥 FIX: root= explicitly set — no runtime download
 # ─────────────────────────────────────────────
 arcface = None
 
@@ -42,8 +46,23 @@ def get_model():
     global arcface
     if arcface is None:
         print("[MODEL] Loading InsightFace buffalo_l ...")
+        print("[MODEL] root =", MODEL_ROOT)
+
+        # Verify model files exist
+        model_dir = os.path.join(MODEL_ROOT, "models", "buffalo_l")
+        if os.path.isdir(model_dir):
+            print("[MODEL] Files:", os.listdir(model_dir))
+        else:
+            print("[MODEL] ❌ ERROR: model_dir not found:", model_dir)
+
         from insightface.app import FaceAnalysis
-        arcface = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+
+        # 🔥 CRITICAL: root= set karo taaki runtime download na ho
+        arcface = FaceAnalysis(
+            name="buffalo_l",
+            root=MODEL_ROOT,
+            providers=["CPUExecutionProvider"]
+        )
         arcface.prepare(ctx_id=-1, det_size=(640, 640))
         print("[MODEL] InsightFace ready ✅")
     return arcface
@@ -89,15 +108,10 @@ def decode_image_payload(image_value):
 
     try:
         encoded = image_value.split(",", 1)[1] if "," in image_value else image_value
-
-        # Remove all whitespace/newlines (Postman adds these)
         encoded = re.sub(r'\s+', '', encoded)
-
-        # Fix missing base64 padding
         missing_padding = len(encoded) % 4
         if missing_padding:
             encoded += '=' * (4 - missing_padding)
-
         binary = base64.b64decode(encoded)
     except Exception:
         raise ValueError("Invalid image encoding")
@@ -109,7 +123,7 @@ def decode_image_payload(image_value):
     if frame is None:
         raise ValueError("Corrupted image")
 
-    # 🔥 CRITICAL: OpenCV = BGR, InsightFace = RGB
+    # 🔥 OpenCV = BGR, InsightFace = RGB
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     return frame
@@ -117,23 +131,18 @@ def decode_image_payload(image_value):
 
 def decode_frame_sequence(frames_value, image_value=None):
     frames = []
-
     if isinstance(frames_value, list):
         for item in frames_value:
             frames.append(decode_image_payload(item))
-
     if not frames and image_value:
         frames.append(decode_image_payload(image_value))
-
     if not frames:
         raise ValueError("At least one registration frame is required")
-
     return frames
 
 
 # ─────────────────────────────────────────────
 # IMAGE QUALITY CHECK
-# Frame is RGB here — use COLOR_RGB2GRAY
 # ─────────────────────────────────────────────
 def basic_image_quality(frame):
     height, width = frame.shape[:2]
@@ -154,9 +163,7 @@ def basic_image_quality(frame):
 
 
 # ─────────────────────────────────────────────
-# FACE DETECTION
-# FIX: NO preprocess() — InsightFace handles resize itself
-# Direct frame pass → best detection accuracy
+# FACE DETECTION — direct frame, no preprocess
 # ─────────────────────────────────────────────
 def extract_single_face(frame):
     model = get_model()
@@ -167,7 +174,6 @@ def extract_single_face(frame):
     ))
 
     try:
-        # 🔥 DIRECT CALL — no manual preprocess, InsightFace does it internally
         faces = model.get(frame)
         print("[DEBUG] Faces found:", len(faces))
     except Exception as e:
@@ -176,7 +182,6 @@ def extract_single_face(frame):
 
     if not faces:
         return None, "No face detected"
-
     if len(faces) > 1:
         return None, "Multiple faces detected"
 
@@ -229,7 +234,6 @@ def face_is_too_small(face, frame):
 # ─────────────────────────────────────────────
 def find_duplicate_face(embedding, user_id):
     current_embedding = normalize_embedding(embedding)
-
     for doc in faces_col.find({"userId": {"$ne": user_id}}, {"userId": 1, "embedding": 1}):
         stored = doc.get("embedding")
         if not stored:
@@ -237,7 +241,6 @@ def find_duplicate_face(embedding, user_id):
         similarity = cosine_similarity(current_embedding, normalize_embedding(stored))
         if similarity >= DUPLICATE_FACE_THRESHOLD:
             return True, doc.get("userId")
-
     return False, None
 
 
