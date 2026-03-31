@@ -432,6 +432,7 @@ const registerStudentFace = async (req, res) => {
       );
       registerRes = result.response;
       registerData = result.data;
+      console.log("[OpenCV] calling:", result.url);
     } catch (opencvError) {
       console.error("[face-register] OpenCV call failed:", opencvError?.message || opencvError);
       return res.status(503).json({

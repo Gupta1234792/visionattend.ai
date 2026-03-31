@@ -341,6 +341,8 @@ def register_face():
     if not user_id:
         return error_response("userId required", 400, code="MISSING_USER_ID")
 
+    log_event("REGISTER_START", userId=user_id)
+
     if not get_user_document(user_id):
         return error_response("Student not found", 404, code="USER_NOT_FOUND")
 
@@ -429,6 +431,8 @@ def verify_face():
     if not user_id:
         return error_response("userId required", 400, code="MISSING_USER_ID", matched=False, confidence=None)
 
+    print(f"[VERIFY] userId={user_id}")
+
     if not get_user_document(user_id):
         return error_response("Student not found", 404, code="USER_NOT_FOUND", matched=False, confidence=None)
 
@@ -490,6 +494,7 @@ def verify_face():
     liveness_passed = blink_detected
 
     if not blink_detected:
+        print(f"[RESULT] fail userId={user_id} reason=LIVENESS_FAILED score={round(score, 4)}")
         return error_response(
             "Blink not detected. Live face scan required",
             403,
@@ -502,6 +507,7 @@ def verify_face():
         )
 
     if not matched:
+        print(f"[RESULT] fail userId={user_id} reason=FACE_NOT_RECOGNIZED score={round(score, 4)}")
         return error_response(
             "Face not recognized",
             403,
@@ -525,6 +531,7 @@ def verify_face():
         },
     )
 
+    print(f"[RESULT] match userId={user_id} score={round(score, 4)}")
     log_event("VERIFY_RESULT", userId=user_id, similarity=round(score, 4), threshold=MATCH_THRESHOLD, matched=matched)
 
     return jsonify(

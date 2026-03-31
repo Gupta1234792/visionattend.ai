@@ -65,6 +65,7 @@ export default function ChatPage() {
 
   const allowedRoles = roleFiltersBySender[user?.role || ""] || [];
   const selectedUser = contacts.find((c) => c._id === selectedUserId) || null;
+  const currentUserId = String(user?.id || "");
 
   // ── Toast helper ────────────────────────────────────────────────────────────
   const pushToast = (text: string, type: ToastItem["type"]) => {
@@ -83,6 +84,44 @@ export default function ChatPage() {
       setMessages([]);
     }
   };
+
+  const mergeContacts = (incoming: ChatUser[]) => {
+    setContacts((prev) => {
+      const map = new Map(prev.map((item) => [item._id, item]));
+      incoming.forEach((item) => {
+        if (item?._id) {
+          map.set(item._id, item);
+        }
+      });
+      return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    });
+  };
+
+  useEffect(() => {
+    if (!allowedRoles.length) return;
+    let cancelled = false;
+
+    const loadReachableContacts = async () => {
+      try {
+        const results = await Promise.all(
+          allowedRoles.map((role) =>
+            getChatContacts(role).catch(() => ({ success: false, users: [] as ChatUser[] })),
+          ),
+        );
+        if (cancelled) return;
+        mergeContacts(results.flatMap((result) => result.users || []));
+      } catch {
+        if (!cancelled) {
+          setContacts([]);
+        }
+      }
+    };
+
+    void loadReachableContacts();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.role]);
 
   // Poll conversation every 5 s
   useEffect(() => {
@@ -104,10 +143,29 @@ export default function ChatPage() {
     socketRef.current = socket;
 
     socket.on("direct-message", (payload: ChatMessage) => {
-      const relevant =
-        payload.sender?._id === selectedUserId ||
-        payload.receiver?._id === selectedUserId;
-      if (!relevant) return;
+      const otherUser =
+        payload.sender?._id === currentUserId ? payload.receiver : payload.sender;
+
+      if (otherUser?._id) {
+        mergeContacts([
+          {
+            _id: otherUser._id,
+            name: otherUser.name,
+            email: otherUser.email,
+            role: otherUser.role || "",
+          },
+        ]);
+      }
+
+      if (!selectedUserId && otherUser?._id) {
+        setSelectedUserId(otherUser._id);
+      }
+
+      const relevant = otherUser?._id === selectedUserId || (!selectedUserId && Boolean(otherUser?._id));
+      if (!relevant) {
+        return;
+      }
+
       setMessages((cur) => {
         if (cur.some((m) => m._id === payload._id)) return cur;
         return [...cur, payload];
@@ -140,7 +198,7 @@ export default function ChatPage() {
     });
 
     return () => { socket.disconnect(); socketRef.current = null; };
-  }, [token, user?.college, selectedUserId]);
+  }, [token, user?.college, selectedUserId, currentUserId]);
 
   // ── Send ────────────────────────────────────────────────────────────────────
   const onSend = async (e: React.FormEvent) => {
@@ -224,19 +282,13 @@ export default function ChatPage() {
       if (mentionUsers[0]) setSelectedUserId(mentionUsers[0]._id);
       pushToast(`Broadcast to all ${mentionRole}.`, "info");
       // load contacts list so future polls work
-      void getChatContacts(mentionRole).then((r) => setContacts(r.users || []));
+      void getChatContacts(mentionRole).then((r) => mergeContacts(r.users || []));
       return;
     }
     setBroadcastTargets([]);
     setSelectedUserId(userId);
     // store full contacts for that role so selectedUser resolves
-    setContacts((prev) => {
-      const merged = [...prev];
-      mentionUsers.forEach((u) => {
-        if (!merged.find((x) => x._id === u._id)) merged.push(u);
-      });
-      return merged;
-    });
+    mergeContacts(mentionUsers);
   };
 
   // ── Shared popup transition style ────────────────────────────────────────

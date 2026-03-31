@@ -19,7 +19,7 @@ const {
 
 const sendPushNotification = async () => false;
 
-const ATTENDANCE_LIMIT_MINUTES = Number(process.env.ATTENDANCE_LIMIT_MINUTES) || 10;
+const DEFAULT_ATTENDANCE_DURATION_MINUTES = 10;
 const FACE_CONFIDENCE_THRESHOLD = Number(process.env.FACE_CONFIDENCE_THRESHOLD) || 0.5;
 const LOCATION_GREEN_METERS = Number(process.env.LOCATION_GREEN_METERS) || 50;
 const LOCATION_YELLOW_METERS = Number(process.env.LOCATION_YELLOW_METERS) || 150;
@@ -36,6 +36,28 @@ const LIVE_SCAN_MIN_FRAMES = 1;
 const FACE_SIMILARITY_THRESHOLD = 0.65;
 const ATTENDANCE_SCAN_COOLDOWN_MS = Number(process.env.ATTENDANCE_SCAN_COOLDOWN_MS) || 15000;
 const studentScanCooldowns = new Map();
+
+const normalizeSessionDurationMinutes = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_ATTENDANCE_DURATION_MINUTES;
+  }
+  return Math.min(240, Math.max(1, Math.round(parsed)));
+};
+
+const getSessionDurationMinutes = (session) => {
+  if (Number.isFinite(Number(session?.durationMinutes))) {
+    return normalizeSessionDurationMinutes(session.durationMinutes);
+  }
+
+  const startMs = new Date(session?.startTime || 0).getTime();
+  const endMs = new Date(session?.endTime || 0).getTime();
+  if (startMs > 0 && endMs > startMs) {
+    return normalizeSessionDurationMinutes((endMs - startMs) / (60 * 1000));
+  }
+
+  return DEFAULT_ATTENDANCE_DURATION_MINUTES;
+};
 
 const getToday = () => new Date().toISOString().split("T")[0];
 
@@ -58,8 +80,9 @@ const checkAndSetScanCooldown = (studentId, sessionId) => {
 };
 
 const getEffectiveSessionEndTime = (session) => {
+  const durationMinutes = getSessionDurationMinutes(session);
   const hardLimitEnd = new Date(
-    new Date(session.startTime).getTime() + ATTENDANCE_LIMIT_MINUTES * 60 * 1000
+    new Date(session.startTime).getTime() + durationMinutes * 60 * 1000
   );
 
   if (!session?.endTime) {
@@ -221,7 +244,7 @@ const validateGeoContext = async ({ req, college, session, latitude, longitude, 
 
 const startAttendanceSession = async (req, res) => {
   try {
-    const { subjectId, latitude, longitude, year, division } = req.body;
+    const { subjectId, latitude, longitude, year, division, durationMinutes } = req.body;
 
     if (
       subjectId == null ||
@@ -298,8 +321,9 @@ const startAttendanceSession = async (req, res) => {
       });
     }
 
+    const sessionDurationMinutes = normalizeSessionDurationMinutes(durationMinutes);
     const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + ATTENDANCE_LIMIT_MINUTES * 60 * 1000);
+    const endTime = new Date(startTime.getTime() + sessionDurationMinutes * 60 * 1000);
 
     const session = await AttendanceSession.create({
       subject: subject._id,
@@ -310,6 +334,7 @@ const startAttendanceSession = async (req, res) => {
       classKey,
       startTime,
       endTime,
+      durationMinutes: sessionDurationMinutes,
       location: {
         latitude: Number(latitude),
         longitude: Number(longitude)
@@ -318,7 +343,7 @@ const startAttendanceSession = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Attendance session started (${ATTENDANCE_LIMIT_MINUTES} min window)`,
+      message: `Attendance session started (${sessionDurationMinutes} min window)`,
       session
     });
 
@@ -940,7 +965,8 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       });
     }
 
-    const { response: opencvRes, data: opencvData } = await postToOpenCv(
+    console.log(`[VERIFY] userId=${req.user._id}`);
+    const { response: opencvRes, data: opencvData, url: opencvUrl } = await postToOpenCv(
       "verify",
       {
         userId: String(req.user._id),
@@ -948,8 +974,9 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
         image: validFrames[validFrames.length - 1],
         frames: validFrames
       },
-      { timeoutMs: 12000 }
+      { timeoutMs: 12000, retries: 3 }
     );
+    console.log("[OpenCV] calling:", opencvUrl);
     const confidenceValue = Number(opencvData?.confidence);
     const matched = Boolean(opencvData?.matched || opencvData?.success);
     const livenessPassed =
@@ -1524,7 +1551,8 @@ const scanFaceAndMarkAttendance = async (req, res) => {
       });
     }
 
-    const { response: opencvRes, data: opencvData } = await postToOpenCv(
+    console.log(`[VERIFY] userId=${req.user._id}`);
+    const { response: opencvRes, data: opencvData, url: opencvUrl } = await postToOpenCv(
       "verify",
       {
         userId: String(req.user._id),
@@ -1532,8 +1560,9 @@ const scanFaceAndMarkAttendance = async (req, res) => {
         image: validFrames[validFrames.length - 1],
         frames: validFrames
       },
-      { timeoutMs: 12000 }
+      { timeoutMs: 12000, retries: 3 }
     );
+    console.log("[OpenCV] calling:", opencvUrl);
     const confidenceValue = Number(opencvData?.confidence);
     const matched = Boolean(opencvData?.matched || opencvData?.success);
     const livenessPassed = opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;

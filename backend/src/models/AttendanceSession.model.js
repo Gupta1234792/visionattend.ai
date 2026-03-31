@@ -39,6 +39,12 @@ const attendanceSessionSchema = new mongoose.Schema(
 
     startTime: Date,
     endTime: Date,
+    durationMinutes: {
+      type: Number,
+      default: 10,
+      min: 1,
+      max: 240
+    },
 
     location: {
       latitude: Number,

@@ -22,6 +22,7 @@ import {
   buildLectureRoomId,
   connectCollegeSocket,
 } from "@/src/services/socket";
+import { resolveSocketBaseUrl } from "@/src/services/network";
 import { useCameraStream } from "@/src/hooks/use-camera-stream";
 import { getConfidenceUi, isMobileUnsafeCameraContext, mapFaceErrorMessage } from "@/src/utils/demo-ux";
 
@@ -937,6 +938,37 @@ export default function StudentPage() {
       window.setTimeout(resolve, ms);
     });
 
+  const ensureOpenCvReady = useCallback(async () => {
+    const healthUrl = `${resolveSocketBaseUrl()}/health/opencv`;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const res = await fetch(healthUrl, { credentials: "include" });
+        if (res.ok) {
+          return;
+        }
+      } catch {
+        // retry below
+      }
+
+      if (attempt < 2) {
+        await wait(1000);
+      }
+    }
+
+    throw new Error("OpenCV service unreachable. Please retry in a moment.");
+  }, []);
+
+  const shouldRetryOpenCvError = (message: string) => {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("opencv") ||
+      normalized.includes("service unreachable") ||
+      normalized.includes("timeout") ||
+      normalized.includes("temporarily unavailable")
+    );
+  };
+
   const captureLiveBlinkFrames = async () => {
     const frames: string[] = [];
     setIsLiveScanRunning(true);
@@ -1085,19 +1117,40 @@ export default function StudentPage() {
         return;
       }
 
-      const res = await api.post(
-        "/attendance/scan-face-class",
-        {
-          sessionId: activeSessionId,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          locationTimestamp: location.locationTimestamp,
-          frames,
-        },
-        {
-          headers: { Authorization: `Bearer ${authToken}` },
-        },
-      );
+      await ensureOpenCvReady();
+      await wait(2000);
+
+      let res;
+      let scanAttempt = 1;
+      while (scanAttempt <= 2) {
+        try {
+          res = await api.post(
+            "/attendance/scan-face-class",
+            {
+              sessionId: activeSessionId,
+              latitude: location.latitude,
+              longitude: location.longitude,
+              locationTimestamp: location.locationTimestamp,
+              frames,
+            },
+            {
+              headers: { Authorization: `Bearer ${authToken}` },
+            },
+          );
+          break;
+        } catch (error) {
+          const retryMessage = parseApiError(error, "Face attendance failed");
+          if (scanAttempt >= 2 || !shouldRetryOpenCvError(retryMessage)) {
+            throw error;
+          }
+          await wait(2000);
+          scanAttempt += 1;
+        }
+      }
+
+      if (!res) {
+        throw new Error("Face attendance failed");
+      }
 
       setMessage("Attendance marked via face scan!");
       setLastFaceConfidence(Number(res.data?.attendance?.faceConfidence || res.data?.confidence || 0));

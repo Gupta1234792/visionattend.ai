@@ -65,6 +65,7 @@ type ClassroomSession = {
   date?: string;
   startTime?: string;
   endTime?: string;
+  durationMinutes?: number;
   classKey?: string;
 };
 type ClassroomAttendance = {
@@ -102,6 +103,7 @@ type TeacherGuardrails = {
 
 const years: YearValue[] = ["FY", "SY", "TY", "FINAL"];
 const divisions = ["A", "B", "C"];
+const DEFAULT_ATTENDANCE_DURATION_MINUTES = 10;
 
 export default function TeacherPage() {
   const router = useRouter();
@@ -175,7 +177,8 @@ export default function TeacherPage() {
   const getEffectiveSessionEndMs = (session: ClassroomSession) => {
     const startMs = new Date(session.startTime || 0).getTime();
     if (!startMs) return 0;
-    const hardLimitEndMs = startMs + 10 * 60 * 1000;
+    const durationMinutes = Number(session.durationMinutes || DEFAULT_ATTENDANCE_DURATION_MINUTES);
+    const hardLimitEndMs = startMs + durationMinutes * 60 * 1000;
     const storedEndMs = session.endTime ? new Date(session.endTime).getTime() : hardLimitEndMs;
     return Math.min(storedEndMs || hardLimitEndMs, hardLimitEndMs);
   };
@@ -550,7 +553,8 @@ export default function TeacherPage() {
     }
     const update = () => {
       const startMs = new Date(activeAttendanceSession.startTime || 0).getTime();
-      const hardLimitEndMs = startMs + 10 * 60 * 1000;
+      const durationMinutes = Number(activeAttendanceSession.durationMinutes || DEFAULT_ATTENDANCE_DURATION_MINUTES);
+      const hardLimitEndMs = startMs + durationMinutes * 60 * 1000;
       const storedEndMs = activeAttendanceSession.endTime
         ? new Date(activeAttendanceSession.endTime || 0).getTime()
         : hardLimitEndMs;
@@ -632,6 +636,7 @@ export default function TeacherPage() {
         subjectId: attendanceSubjectId,
         year,
         division,
+        durationMinutes: DEFAULT_ATTENDANCE_DURATION_MINUTES,
         latitude: location.latitude,
         longitude: location.longitude
       });
@@ -1325,7 +1330,9 @@ export default function TeacherPage() {
 
           <section id="attendance" className="rounded-3xl border border-white/70 bg-white/75 p-4 shadow-[0_12px_35px_rgba(35,70,140,0.08)] backdrop-blur xl:col-span-2">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Start Daily Attendance Window (10 Minutes)</h2>
+              <h2 className="text-base font-semibold">
+                Start Daily Attendance Window ({activeAttendanceSession?.durationMinutes || DEFAULT_ATTENDANCE_DURATION_MINUTES} Minutes)
+              </h2>
               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${activeAttendanceSession ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
                 <span className={`h-2 w-2 rounded-full ${activeAttendanceSession ? "animate-pulse bg-red-600" : "bg-slate-400"}`} />
                 {activeAttendanceSession ? "LIVE" : "OFFLINE"}
@@ -1335,7 +1342,7 @@ export default function TeacherPage() {
             {activeAttendanceSession ? (
               <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 <p>
-                  Active daily session started at {activeAttendanceSession.startTime ? new Date(activeAttendanceSession.startTime).toLocaleTimeString() : "-"} and follows a fixed 10-minute attendance window.
+                  Active daily session started at {activeAttendanceSession.startTime ? new Date(activeAttendanceSession.startTime).toLocaleTimeString() : "-"} and follows a {activeAttendanceSession.durationMinutes || DEFAULT_ATTENDANCE_DURATION_MINUTES}-minute attendance window.
                 </p>
                 <p className="mt-2 text-center text-4xl font-extrabold tracking-wide text-red-700">
                   {String(Math.floor(sessionCountdownSeconds / 60)).padStart(2, "0")}:{String(sessionCountdownSeconds % 60).padStart(2, "0")}

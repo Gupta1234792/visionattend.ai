@@ -4,7 +4,7 @@ const AttendanceSession = require("../models/AttendanceSession.model");
 const College = require("../models/College.model");
 const { emitToCollegeRoom } = require("../sockets/gateway");
 
-const ATTENDANCE_LIMIT_MINUTES = 10;
+const DEFAULT_ATTENDANCE_DURATION_MINUTES = 10;
 const LECTURE_MAX_DURATION_HOURS = 2; // Auto timeout after 2 hours
 const buildClassKey = ({ date, batchKey }) => `${date}_${batchKey}`;
 
@@ -38,7 +38,11 @@ cron.schedule("* * * * *", async () => {
       const existing = await AttendanceSession.findOne({ classKey }).select("_id").lean();
       if (!existing) {
         const college = await College.findById(lecture.collegeId).select("location").lean();
-        const endTime = new Date(Math.min(lectureEnd.getTime(), now.getTime() + ATTENDANCE_LIMIT_MINUTES * 60 * 1000));
+        const durationMinutes = Math.min(
+          Number(lecture.durationMinutes || DEFAULT_ATTENDANCE_DURATION_MINUTES),
+          DEFAULT_ATTENDANCE_DURATION_MINUTES,
+        );
+        const endTime = new Date(Math.min(lectureEnd.getTime(), now.getTime() + durationMinutes * 60 * 1000));
 
         const created = await AttendanceSession.create({
           subject: lecture.subjectId,
@@ -49,6 +53,7 @@ cron.schedule("* * * * *", async () => {
           classKey,
           startTime: now,
           endTime,
+          durationMinutes,
           location: {
             latitude: Number(college?.location?.latitude || 0),
             longitude: Number(college?.location?.longitude || 0)
