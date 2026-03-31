@@ -9,22 +9,3 @@ insightface==0.7.2
 onnxruntime==1.16.3
 python-dotenv==1.0.1
 gunicorn==21.2.0
-```
-
-Bas **upar 2 lines add kar** — `setuptools` aur `wheel` — aur file save kar ke push kar.
-
----
-
-
-Tera error **Python 3.14** ki wajah se aa raha hai — yeh bohot naya hai aur `insightface`, `onnxruntime` jaise libraries abhi tak 3.14 ko properly support nahi karti.
-
-**Render pe Python version fix kar:**
-
-Apne project mein ek naya file banao — naam hoga:
-```
-runtime.txt
-```
-
-Usme sirf itna likh:
-```
-python-3.11.9
