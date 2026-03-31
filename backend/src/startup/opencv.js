@@ -35,10 +35,24 @@ const getRenderRouteUrl = (kind) => {
   return kind === "register" ? registerUrl : verifyUrl;
 };
 
+const getFallbackRouteUrl = (kind) => {
+  const verifyUrl = normalizeBaseUrl(
+    process.env.OPENCV_VERIFY_FALLBACK || process.env.OPENCV_VERIFY_URL,
+  );
+  const registerUrl = normalizeBaseUrl(
+    process.env.OPENCV_REGISTER_FALLBACK ||
+      process.env.OPENCV_REGISTER_URL ||
+      (verifyUrl ? verifyUrl.replace(/\/verify\/?$/i, "/register") : ""),
+  );
+
+  return kind === "register" ? registerUrl : verifyUrl;
+};
+
 const getOpencvEndpointCandidates = (kind) => {
   const localCandidates = LOCAL_OPENCV_BASES.map((base) => buildRouteUrl(base, kind));
-  const renderCandidate = getRenderRouteUrl(kind);
-  return [...new Set([...localCandidates, renderCandidate].filter(Boolean))];
+  const primaryCandidate = getRenderRouteUrl(kind);
+  const fallbackCandidate = getFallbackRouteUrl(kind);
+  return [...new Set([...localCandidates, primaryCandidate, fallbackCandidate].filter(Boolean))];
 };
 
 const probeHealth = async (url, timeoutMs) => {

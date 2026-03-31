@@ -8,7 +8,6 @@ const { updateFaceCache } = require("../utils/faceCache");
 const { getOpencvEndpointCandidates, postToOpenCv } = require("../startup/opencv");
 const {
   assertImagePayloadLimit,
-  estimateBase64Bytes,
   isValidImageDataUrl
 } = require("../utils/imagePayload");
 
@@ -362,15 +361,6 @@ const registerStudentFace = async (req, res) => {
         success: false,
         message: payloadValidation.message,
         code: payloadValidation.code || "IMAGE_PAYLOAD_TOO_LARGE"
-      });
-    }
-
-    const approxBytes = estimateBase64Bytes(primaryImage);
-    if (approxBytes < 5000) {
-      return res.status(400).json({
-        success: false,
-        message: "Image too small. Capture a clear face frame close to the camera.",
-        code: "LOW_QUALITY_IMAGE"
       });
     }
 

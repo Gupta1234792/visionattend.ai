@@ -76,6 +76,9 @@ services:
       REDIS_PORT: 6379
       DEV_MODE: "false"
       ALLOW_STUDENT_MANUAL_BYPASS: "false"
+      DEV_FACE_BYPASS: "true"
+      DEV_BYPASS_KEY: ""
+      DEV_BYPASS_ALLOWED_USERS: ""
       AUTO_SEED_LOCAL_USERS: "true"
       DEMO_USER_PASSWORD: Vision@123
 
@@ -104,6 +107,9 @@ services:
       NEXT_PUBLIC_SOCKET_URL: http://localhost:5000
       NEXT_PUBLIC_DEV_BYPASS: "false"
       NEXT_PUBLIC_DEV_MODE: "false"
+      NEXT_PUBLIC_DEV_FACE_BYPASS: "true"
+      NEXT_PUBLIC_DEV_BYPASS_KEY: ""
+      NEXT_PUBLIC_DEV_BYPASS_ALLOWED_USERS: ""
     depends_on:
       backend:
         condition: service_healthy

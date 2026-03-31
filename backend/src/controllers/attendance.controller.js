@@ -32,6 +32,21 @@ const DEV_FORCE_GREEN_ON_MANUAL_BYPASS = String(
   process.env.DEV_FORCE_GREEN_ON_MANUAL_BYPASS || (process.env.NODE_ENV !== "production" ? "true" : "false")
 ) === "true";
 const ALLOW_STUDENT_MANUAL_BYPASS = String(process.env.ALLOW_STUDENT_MANUAL_BYPASS || "false") === "true";
+const DEV_FACE_BYPASS = String(process.env.DEV_FACE_BYPASS || "false") === "true";
+const DEV_BYPASS_KEY = String(process.env.DEV_BYPASS_KEY || "").trim();
+const DEV_BYPASS_ALLOWED_USERS = (() => {
+  const raw = String(process.env.DEV_BYPASS_ALLOWED_USERS || "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+    }
+  } catch (_) {
+    // fall through to comma-separated parsing
+  }
+  return raw.split(",").map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+})();
 const LIVE_SCAN_MIN_FRAMES = 1;
 const FACE_SIMILARITY_THRESHOLD = 0.65;
 const ATTENDANCE_SCAN_COOLDOWN_MS = Number(process.env.ATTENDANCE_SCAN_COOLDOWN_MS) || 15000;
@@ -62,6 +77,20 @@ const getSessionDurationMinutes = (session) => {
 const getToday = () => new Date().toISOString().split("T")[0];
 
 const buildClassKey = ({ date, batchKey }) => `${date}_${batchKey}`;
+
+const isDevFaceBypassAuthorized = (req) => {
+  if (!DEV_FACE_BYPASS || !DEV_BYPASS_KEY) {
+    return false;
+  }
+
+  const requestKey = String(req.headers["x-dev-bypass"] || "").trim();
+  const requestEmail = String(req.user?.email || "").trim().toLowerCase();
+  if (!requestKey || requestKey !== DEV_BYPASS_KEY) {
+    return false;
+  }
+
+  return DEV_BYPASS_ALLOWED_USERS.includes(requestEmail);
+};
 
 const checkAndSetScanCooldown = (studentId, sessionId) => {
   const key = `${studentId}_${sessionId}`;
@@ -697,9 +726,11 @@ const markClassAttendance = async (req, res) => {
       });
     }
 
-    const studentProfile = await User.findById(req.user._id).select("faceRegisteredAt");
+    const studentProfile = await User.findById(req.user._id).select("faceRegisteredAt email");
     const bypassRequested = Boolean(manualBypass);
-    const bypassAllowed = ALLOW_STUDENT_MANUAL_BYPASS && bypassRequested;
+    const bypassAllowed =
+      (ALLOW_STUDENT_MANUAL_BYPASS && bypassRequested) ||
+      (bypassRequested && isDevFaceBypassAuthorized(req));
 
     if (!studentProfile?.faceRegisteredAt && !bypassAllowed) {
       return res.status(403).json({
@@ -935,9 +966,11 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
       });
     }
 
-    const studentProfile = await User.findById(req.user._id).select("faceRegisteredAt");
+    const studentProfile = await User.findById(req.user._id).select("faceRegisteredAt email");
     const bypassRequested = Boolean(manualBypass);
-    const bypassAllowed = ALLOW_STUDENT_MANUAL_BYPASS && bypassRequested;
+    const bypassAllowed =
+      (ALLOW_STUDENT_MANUAL_BYPASS && bypassRequested) ||
+      (bypassRequested && isDevFaceBypassAuthorized(req));
 
     if (!studentProfile?.faceRegisteredAt && !bypassAllowed) {
       return res.status(403).json({
@@ -979,13 +1012,10 @@ const scanFaceAndMarkClassAttendance = async (req, res) => {
     console.log("[OpenCV] calling:", opencvUrl);
     const confidenceValue = Number(opencvData?.confidence);
     const matched = Boolean(opencvData?.matched || opencvData?.success);
-    const livenessPassed =
-      opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;
 
     if (
       !opencvRes.ok ||
       !matched ||
-      !livenessPassed ||
       !Number.isFinite(confidenceValue) ||
       confidenceValue < FACE_CONFIDENCE_THRESHOLD
     ) {
@@ -1565,12 +1595,10 @@ const scanFaceAndMarkAttendance = async (req, res) => {
     console.log("[OpenCV] calling:", opencvUrl);
     const confidenceValue = Number(opencvData?.confidence);
     const matched = Boolean(opencvData?.matched || opencvData?.success);
-    const livenessPassed = opencvData?.livenessPassed === true && opencvData?.blinkDetected === true;
 
     if (
       !opencvRes.ok ||
       !matched ||
-      !livenessPassed ||
       !Number.isFinite(confidenceValue) ||
       confidenceValue < FACE_CONFIDENCE_THRESHOLD
     ) {

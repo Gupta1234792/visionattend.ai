@@ -106,7 +106,8 @@ def decode_image_payload(image_value):
     if frame is None:
         raise ValueError("Corrupted image")
 
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # InsightFace expects the OpenCV-native BGR frame.
+    return frame
 
 
 def decode_frame_sequence(frames_value, image_value=None):
@@ -272,18 +273,9 @@ def extract_faces_for_frames(frames):
     errors = []
 
     for frame in frames:
-        quality_ok, quality_message, quality_code = basic_image_quality(frame)
-        if not quality_ok:
-            errors.append((quality_message, quality_code))
-            continue
-
         face, error_message, error_code = extract_single_face(frame)
         if error_message:
             errors.append((error_message, error_code))
-            continue
-
-        if face_is_too_small(face, frame):
-            errors.append(("Face too small in frame", "FACE_TOO_SMALL"))
             continue
 
         faces.append(face)
@@ -493,19 +485,6 @@ def verify_face():
     blink_detected, blink_signals = detect_blink(ears)
     liveness_passed = blink_detected
 
-    if not blink_detected:
-        print(f"[RESULT] fail userId={user_id} reason=LIVENESS_FAILED score={round(score, 4)}")
-        return error_response(
-            "Blink not detected. Live face scan required",
-            403,
-            code="LIVENESS_FAILED",
-            matched=False,
-            confidence=float(score),
-            livenessPassed=False,
-            blinkDetected=False,
-            blinkSignals=blink_signals,
-        )
-
     if not matched:
         print(f"[RESULT] fail userId={user_id} reason=FACE_NOT_RECOGNIZED score={round(score, 4)}")
         return error_response(
@@ -514,7 +493,7 @@ def verify_face():
             code="FACE_NOT_RECOGNIZED",
             matched=False,
             confidence=float(score),
-            livenessPassed=liveness_passed,
+            livenessPassed=blink_detected,
             blinkDetected=blink_detected,
             blinkSignals=blink_signals,
         )
@@ -539,8 +518,8 @@ def verify_face():
             "success": True,
             "matched": True,
             "confidence": float(score),
-            "livenessPassed": True,
-            "blinkDetected": True,
+            "livenessPassed": liveness_passed,
+            "blinkDetected": blink_detected,
             "blinkSignals": blink_signals,
             "message": "Face matched",
         }

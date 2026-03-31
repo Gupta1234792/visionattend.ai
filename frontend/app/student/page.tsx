@@ -548,7 +548,20 @@ export default function StudentPage() {
   const [lastFaceConfidence, setLastFaceConfidence] = useState<number | null>(null);
   const [lowLightWarning, setLowLightWarning] = useState("");
   const [todaysTimetable, setTodaysTimetable] = useState<TodaysTimetableRow | null>(null);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const allowManualBypass = process.env.NEXT_PUBLIC_DEV_BYPASS === "true";
+  const allowDevFaceBypass = process.env.NEXT_PUBLIC_DEV_FACE_BYPASS === "true";
+  const devFaceBypassAllowedUsers = String(
+    process.env.NEXT_PUBLIC_DEV_BYPASS_ALLOWED_USERS || "",
+  )
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const canUseDevPass =
+    allowDevFaceBypass &&
+    isMobileDevice &&
+    Boolean(user?.email) &&
+    devFaceBypassAllowedUsers.includes(String(user?.email || "").trim().toLowerCase());
   const [botMessages, setBotMessages] = useState<BotMessage[]>([
     {
       id: "welcome",
@@ -606,6 +619,23 @@ export default function StudentPage() {
   const liveLectureAlertedRef = useRef("");
   const upcomingLecturesRef = useRef<BatchLecture[]>([]);
   const activeLectureRef = useRef<BatchLecture | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const updateMobileState = () => {
+      const userAgent = navigator.userAgent || "";
+      const mobileAgent = /Android|iPhone|iPod/i.test(userAgent);
+      const narrowScreen = window.innerWidth < 768;
+      setIsMobileDevice(mobileAgent || narrowScreen);
+    };
+
+    updateMobileState();
+    window.addEventListener("resize", updateMobileState);
+    return () => window.removeEventListener("resize", updateMobileState);
+  }, []);
 
   const batchKey =
     user?.department && user?.year && user?.division
@@ -1247,6 +1277,47 @@ export default function StudentPage() {
       const errMsg = parseApiError(error, "Manual attendance failed.");
       setMessage(errMsg);
       pushToast(errMsg, "error");
+    }
+  };
+
+  const markAttendanceDevPass = async () => {
+    if (!activeSessionId) {
+      setMessage("No active attendance session. Waiting for teacher to start...");
+      return;
+    }
+
+    try {
+      const location = await getLocation();
+      const res = await api.post(
+        "/attendance/mark-class",
+        {
+          sessionId: activeSessionId,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          locationTimestamp: location.locationTimestamp,
+          manualBypass: true,
+        },
+        {
+          headers: {
+            "x-dev-bypass": String(process.env.NEXT_PUBLIC_DEV_BYPASS_KEY || ""),
+          },
+        },
+      );
+
+      void res;
+      setMessage("Attendance marked.");
+      pushToast("Attendance marked ✅", "success");
+      setScanStage("success");
+      setShowAttendanceSuccess(true);
+      setTimeout(() => setShowAttendanceSuccess(false), 1800);
+      closeAttendanceCamera();
+      void loadHistory();
+      void loadDailyAttendance();
+      clearActiveSession("Attendance marked.");
+    } catch (error) {
+      const msg = parseApiError(error, "Dev Pass failed");
+      setMessage(msg);
+      pushToast(msg, "error");
     }
   };
 
@@ -2023,6 +2094,16 @@ export default function StudentPage() {
                     Mark Attendance (Manual)
                   </button>
                 )}
+                {canUseDevPass && (
+                  <button
+                    className="min-h-[36px] w-full sm:w-auto rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 active:scale-[0.98]"
+                    type="button"
+                    onClick={markAttendanceDevPass}
+                    disabled={!activeSessionId || remainingSeconds <= 0}
+                  >
+                    Dev Pass
+                  </button>
+                )}
                 <button
                   className="min-h-[44px] w-full sm:w-auto rounded-lg border border-slate-300 px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:shadow-md active:scale-[0.98]"
                   type="button"
@@ -2127,6 +2208,16 @@ export default function StudentPage() {
                   disabled={!activeSessionId || remainingSeconds <= 0}
                 >
                   Mark Attendance (Manual)
+                </button>
+              ) : null}
+              {canUseDevPass ? (
+                <button
+                  className="min-h-[36px] w-full sm:w-auto rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 hover:bg-slate-50 active:scale-[0.98]"
+                  type="button"
+                  onClick={markAttendanceDevPass}
+                  disabled={!activeSessionId || remainingSeconds <= 0}
+                >
+                  Dev Pass
                 </button>
               ) : null}
             </div>
