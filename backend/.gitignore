@@ -6,3 +6,5 @@ build
 logs
 coverage
 .DS_Store
+.env
+.env.*
